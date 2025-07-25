@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
-from app.schemas.nowwhat import GoogleLoginRequest, LoginResponse, LogoutRequest, APIResponse
+from app.schemas.nowwhat import GoogleLoginRequest, LoginResponse, LogoutRequest, APIResponse, UserProfile
 from app.core.auth import get_current_user
 from app.core.database import get_database
 from app.core.security import create_access_token, create_refresh_token, verify_token
@@ -108,6 +108,42 @@ async def google_login(
         raise HTTPException(
             status_code=500, 
             detail="로그인 처리 중 오류가 발생했습니다."
+        )
+
+@router.get("/me")
+async def get_current_user_info(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_database)
+):
+    """현재 로그인한 사용자 정보 조회"""
+    try:
+        # get_current_user에서 이미 사용자 정보를 조회했지만, 
+        # 최신 정보를 위해 다시 조회
+        db_user = await user.get(db, id=current_user["id"])
+        
+        if not db_user:
+            raise HTTPException(
+                status_code=404, 
+                detail="사용자를 찾을 수 없습니다."
+            )
+        
+        return {
+            "id": db_user.id,
+            "email": db_user.email,
+            "name": db_user.name,
+            "profileImage": db_user.profile_image,
+            "googleId": db_user.google_id,
+            "createdAt": db_user.created_at.isoformat(),
+            "lastLoginAt": db_user.last_login_at.isoformat() if db_user.last_login_at else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get current user error: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="사용자 정보 조회 중 오류가 발생했습니다."
         )
 
 @router.post("/logout", response_model=APIResponse)
