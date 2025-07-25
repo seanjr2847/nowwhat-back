@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 # SQLAlchemy Base 클래스
 Base = declarative_base()
 
-# 동기 엔진 (Alembic용)
+# 동기 엔진 (Alembic용) - Vercel 호환성을 위해 pg8000 사용
 engine = create_engine(
-    settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"),
+    settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+pg8000://"),
     echo=settings.ENV == "development"
 )
 
