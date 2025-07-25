@@ -1,9 +1,10 @@
 # core/config.py
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
 from app.core.config import settings
 import logging
 
@@ -34,30 +35,43 @@ AsyncSessionLocal = sessionmaker(
 )
 
 # 의존성 주입용 데이터베이스 세션
-async def get_database():
+async def get_database() -> AsyncSession:
+    """데이터베이스 세션 의존성"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
         except Exception as e:
-            await session.rollback()
             logger.error(f"Database session error: {e}")
+            await session.rollback()
             raise
         finally:
             await session.close()
 
 # 데이터베이스 테이블 생성
 async def create_tables():
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created successfully")
+    """데이터베이스 테이블 생성"""
+    try:
+        from app.models.database import Base
+        async with async_engine.begin() as conn:
+            # 모든 테이블 생성 (존재하지 않는 경우에만)
+            await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create database tables: {e}")
+        raise
 
 # 데이터베이스 연결 테스트
 async def test_connection():
+    """데이터베이스 연결 테스트"""
     try:
-        async with AsyncSessionLocal() as session:
-            await session.execute("SELECT 1")
-            logger.info("Database connection successful")
-            return True
+        async with engine.begin() as conn:
+            # text() 함수를 사용하여 명시적으로 SQL 문자열 선언
+            result = await conn.execute(text("SELECT 1"))
+            return result.scalar() == 1
     except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        return False
+        logger.error(f"Database connection test failed: {e}")
+        raise
+
+async def close_database():
+    """데이터베이스 연결 종료"""
+    await engine.dispose()

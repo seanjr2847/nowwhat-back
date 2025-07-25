@@ -1,0 +1,43 @@
+# 가상환경
+venv/
+env/
+.venv/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 로그 파일
+*.log
+
+# 환경 설정
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Alembic (마이그레이션은 로컬에서만)
+alembic.ini
+alembic/
+
+# 개발용 파일
+run.py
+README.md 

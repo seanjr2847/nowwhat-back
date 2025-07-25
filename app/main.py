@@ -1,23 +1,25 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.api.v1.api import api_router
 from app.schemas.nowwhat import ErrorResponse
 from app.core.config import settings
+from app.api.v1.api import api_router
 from app.core.database import create_tables, test_connection
 import logging
 
+# 로깅 설정
+logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="NowWhat API Server",
-    description="체크리스트 기반 목표 달성 서비스 API",
+    description="인텐트 분석 및 체크리스트 생성을 위한 API 서버",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-# CORS 미들웨어 추가
+# CORS 미들웨어 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -26,30 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 애플리케이션 시작 시 이벤트
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작 시 데이터베이스 연결 및 테이블 생성"""
-    logger.info("Starting NowWhat API Server...")
-    
-    # 데이터베이스 연결 테스트
-    connection_ok = await test_connection()
-    if connection_ok:
-        logger.info("✅ Database connection successful")
-        
-        # 테이블 생성 (필요한 경우)
-        try:
-            await create_tables()
-            logger.info("✅ Database tables ready")
-        except Exception as e:
-            logger.error(f"❌ Failed to create tables: {e}")
-    else:
-        logger.error("❌ Database connection failed - running with limited functionality")
-
-# API 라우터 등록
+# API 라우터 포함
 app.include_router(api_router, prefix="/api/v1")
 
-# 글로벌 예외 핸들러
+# 전역 예외 핸들러
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global exception: {exc}")
@@ -57,27 +39,61 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content=ErrorResponse(
             success=False,
-            error="internal_server_error",
-            message="내부 서버 오류가 발생했습니다."
+            error={
+                "code": "internal_server_error",
+                "message": "서버 내부 오류가 발생했습니다."
+            }
         ).dict()
     )
 
+# Vercel 서버리스 환경에서는 startup 이벤트 대신 첫 요청 시 초기화
+_db_initialized = False
+
+async def initialize_database():
+    """데이터베이스 초기화 (한 번만 실행)"""
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            logger.info("Testing database connection...")
+            await test_connection()
+            logger.info("✅ Database connection successful!")
+            
+            logger.info("Creating database tables...")
+            await create_tables()
+            logger.info("✅ Database tables ready!")
+            
+            _db_initialized = True
+        except Exception as e:
+            logger.error(f"❌ Database initialization failed: {e}")
+            # Vercel에서는 데이터베이스 연결 실패해도 서버는 계속 실행
+
 @app.get("/")
 async def root():
+    """루트 엔드포인트 - 서비스 정보 반환"""
+    await initialize_database()  # 첫 요청 시 DB 초기화
     return {
-        "service": "NowWhat API Server", 
+        "service": "NowWhat API Server",
         "version": "1.0.0",
-        "description": "체크리스트 기반 목표 달성 서비스",
+        "description": "인텐트 분석 및 체크리스트 생성을 위한 API 서버",
         "docs": "/docs",
-        "database": "PostgreSQL"
+        "health": "/health"
     }
 
 @app.get("/health")
 async def health_check():
-    # 데이터베이스 연결 상태 확인
-    db_status = await test_connection()
+    """헬스 체크 엔드포인트"""
+    try:
+        await test_connection()
+        db_status = "connected"
+    except Exception as e:
+        logger.warning(f"Database health check failed: {e}")
+        db_status = "disconnected"
+    
     return {
-        "status": "healthy" if db_status else "degraded", 
-        "service": "nowwhat-api",
-        "database": "connected" if db_status else "disconnected"
+        "status": "healthy",
+        "database": db_status,
+        "version": "1.0.0"
     }
+
+# Vercel용 handler (필요한 경우)
+handler = app
