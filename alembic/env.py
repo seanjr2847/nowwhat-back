@@ -19,7 +19,7 @@ config = context.config
 # 동적으로 DATABASE_URL 설정
 config.set_main_option(
     "sqlalchemy.url", 
-    settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg://")
 )
 
 # Interpret the config file for Python logging.

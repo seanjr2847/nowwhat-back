@@ -7,36 +7,90 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 from app.core.config import settings
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 # SQLAlchemy Base 클래스
 Base = declarative_base()
 
-# 동기 엔진 (Alembic용) - Vercel 호환성을 위해 psycopg 사용
-engine = create_engine(
-    settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg://"),
-    echo=settings.ENV == "development"
-)
+def get_sync_database_url():
+    """동기 데이터베이스 URL 생성 (Alembic용)"""
+    url = settings.DATABASE_URL
+    if url.startswith("postgresql+asyncpg://"):
+        return url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
+    elif url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg://")
+    elif url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://")
+    return url
 
-# 비동기 엔진 (FastAPI용)
-async_engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.ENV == "development",
-    pool_pre_ping=True,
-    pool_recycle=300
-)
+def get_async_database_url():
+    """비동기 데이터베이스 URL 생성 (FastAPI용)"""
+    url = settings.DATABASE_URL
+    if not url.startswith("postgresql+asyncpg://"):
+        if url.startswith("postgres://"):
+            return url.replace("postgres://", "postgresql+asyncpg://")
+        elif url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+asyncpg://")
+    return url
 
-# 비동기 세션 메이커
-AsyncSessionLocal = sessionmaker(
-    async_engine, 
-    class_=AsyncSession, 
-    expire_on_commit=False
-)
+# 동기 엔진 (Alembic용) - 완전한 지연 초기화
+engine = None
+
+def get_sync_engine():
+    """동기 엔진을 안전하게 가져오는 함수"""
+    global engine
+    if engine is None:
+        try:
+            engine = create_engine(
+                get_sync_database_url(),
+                echo=settings.ENV == "development"
+            )
+            logger.info("동기 엔진이 성공적으로 초기화되었습니다.")
+        except Exception as e:
+            logger.error(f"동기 엔진 초기화 실패: {e}")
+            raise
+    return engine
+
+# 비동기 엔진 (FastAPI용) - 지연 초기화
+async_engine = None
+
+def get_async_engine():
+    """비동기 엔진을 안전하게 가져오는 함수"""
+    global async_engine
+    if async_engine is None:
+        try:
+            async_engine = create_async_engine(
+                get_async_database_url(),
+                echo=settings.ENV == "development",
+                pool_pre_ping=True,
+                pool_recycle=300
+            )
+            logger.info("비동기 엔진이 성공적으로 초기화되었습니다.")
+        except Exception as e:
+            logger.error(f"비동기 엔진 초기화 실패: {e}")
+            raise
+    return async_engine
+
+# 비동기 세션 메이커 - 지연 초기화
+_AsyncSessionLocal = None
+
+def get_async_session_maker():
+    """비동기 세션 메이커를 안전하게 가져오는 함수"""
+    global _AsyncSessionLocal
+    if _AsyncSessionLocal is None:
+        _AsyncSessionLocal = async_sessionmaker(
+            get_async_engine(), 
+            class_=AsyncSession, 
+            expire_on_commit=False
+        )
+    return _AsyncSessionLocal
 
 # 의존성 주입용 데이터베이스 세션
 async def get_database() -> AsyncSession:
     """데이터베이스 세션 의존성"""
+    AsyncSessionLocal = get_async_session_maker()
     async with AsyncSessionLocal() as session:
         try:
             yield session
