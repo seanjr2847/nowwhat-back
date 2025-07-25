@@ -8,11 +8,11 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     ENV: str = "development"
     
-    # 데이터베이스 설정
-    DATABASE_URL: str = "sqlite:///./notion_clone.db"
+    # Neon PostgreSQL 데이터베이스 설정
+    DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_0PAEIUGMxJq6@ep-orange-hall-ad5vlgl8-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
     
     # JWT 설정
-    SECRET_KEY: str = "your-super-secret-key-here"
+    SECRET_KEY: str = "nowwhat-super-secret-key-for-production-change-this"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     

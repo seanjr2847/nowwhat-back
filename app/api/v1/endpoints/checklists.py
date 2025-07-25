@@ -1,46 +1,65 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.nowwhat import (
     Checklist, ChecklistSaveRequest, ItemUpdateRequest, 
     ChecklistListResponse, APIResponse, ChecklistItem
 )
 from app.core.auth import get_current_user
+from app.core.database import get_database
+from app.crud.checklist import checklist, checklist_item
+from datetime import datetime
 
 router = APIRouter()
 
 @router.get("/{checklist_id}", response_model=Checklist)
-async def get_checklist(checklist_id: str, current_user=Depends(get_current_user)):
+async def get_checklist(
+    checklist_id: str, 
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_database)
+):
     """특정 체크리스트 조회"""
     try:
-        # TODO: 실제 체크리스트 조회 로직
-        # 1. checklist_id로 체크리스트 조회
-        # 2. 권한 확인 (본인 소유 또는 public)
-        # 3. 체크리스트 정보 반환
+        # 데이터베이스에서 체크리스트 조회
+        db_checklist = await checklist.get_with_items(db, checklist_id=checklist_id)
         
-        from datetime import datetime
+        if not db_checklist:
+            raise HTTPException(status_code=404, detail="체크리스트를 찾을 수 없습니다.")
         
-        # 임시 체크리스트 데이터
-        sample_items = [
-            ChecklistItem(id="item_1", text="아침 7시에 기상하기", order=1),
-            ChecklistItem(id="item_2", text="물 2L 마시기", order=2),
-            ChecklistItem(id="item_3", text="30분 운동하기", order=3, isCompleted=True, completedAt=datetime.now()),
-            ChecklistItem(id="item_4", text="건강한 식단 유지하기", order=4),
-            ChecklistItem(id="item_5", text="충분한 수면 취하기", order=5)
+        # 권한 확인 (본인 소유 또는 public)
+        user_id = current_user.get("id")
+        if db_checklist.user_id != user_id and not db_checklist.is_public:
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+        
+        # Pydantic 모델로 변환
+        checklist_items = [
+            ChecklistItem(
+                id=item.id,
+                text=item.text,
+                isCompleted=item.is_completed,
+                completedAt=item.completed_at,
+                order=item.order
+            )
+            for item in db_checklist.items
         ]
         
         return Checklist(
-            id=checklist_id,
-            title="건강한 하루 루틴",
-            description="건강한 생활습관을 위한 일일 체크리스트",
-            category="health",
-            items=sample_items,
-            progress=20.0,  # 5개 중 1개 완료
-            createdAt=datetime.now(),
-            updatedAt=datetime.now(),
-            isPublic=True
+            id=db_checklist.id,
+            title=db_checklist.title,
+            description=db_checklist.description,
+            category=db_checklist.category,
+            items=checklist_items,
+            progress=db_checklist.progress,
+            createdAt=db_checklist.created_at,
+            updatedAt=db_checklist.updated_at,
+            isPublic=db_checklist.is_public,
+            customName=db_checklist.custom_name
         )
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=404, detail="체크리스트를 찾을 수 없습니다.")
+        raise HTTPException(status_code=500, detail="체크리스트 조회 중 오류가 발생했습니다.")
 
 @router.get("/my", response_model=ChecklistListResponse)
 async def get_my_checklists(
@@ -50,56 +69,53 @@ async def get_my_checklists(
     status: Optional[str] = Query(None),
     sortBy: Optional[str] = Query("createdAt"),
     sortOrder: Optional[str] = Query("desc"),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_database)
 ):
     """내 체크리스트 목록 조회 - 페이지네이션"""
     try:
-        # TODO: 실제 체크리스트 목록 조회 로직
-        # 1. 사용자별 체크리스트 조회
-        # 2. 필터링 (category, status)
-        # 3. 정렬 (sortBy, sortOrder)
-        # 4. 페이지네이션
+        user_id = current_user.get("id")
+        skip = (page - 1) * limit
         
-        from datetime import datetime
+        # 데이터베이스에서 사용자 체크리스트 조회
+        db_checklists = await checklist.get_user_checklists(
+            db,
+            user_id=user_id,
+            skip=skip,
+            limit=limit,
+            category=category,
+            status=status
+        )
         
-        # 임시 체크리스트 목록
-        sample_checklists = [
+        # Pydantic 모델로 변환
+        checklists = [
             Checklist(
-                id="checklist_1",
-                title="건강한 하루 루틴",
-                description="건강한 생활습관을 위한 일일 체크리스트",
-                category="health",
-                items=[],
-                progress=60.0,
-                createdAt=datetime.now(),
-                updatedAt=datetime.now(),
-                isPublic=False,
-                customName="내 건강 루틴"
-            ),
-            Checklist(
-                id="checklist_2",
-                title="업무 효율성 향상",
-                description="생산성을 높이는 업무 체크리스트",
-                category="productivity",
-                items=[],
-                progress=25.0,
-                createdAt=datetime.now(),
-                updatedAt=datetime.now(),
-                isPublic=False
+                id=cl.id,
+                title=cl.title,
+                description=cl.description,
+                category=cl.category,
+                items=[],  # 목록에서는 items를 제외
+                progress=cl.progress,
+                createdAt=cl.created_at,
+                updatedAt=cl.updated_at,
+                isPublic=cl.is_public,
+                customName=cl.custom_name
             )
+            for cl in db_checklists
         ]
         
         return ChecklistListResponse(
             success=True,
             message="체크리스트 목록을 조회했습니다.",
-            data=sample_checklists,
+            data=checklists,
             pagination={
                 "currentPage": page,
-                "totalPages": 1,
-                "totalItems": len(sample_checklists),
+                "totalPages": (len(checklists) + limit - 1) // limit,
+                "totalItems": len(checklists),
                 "itemsPerPage": limit
             }
         )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail="체크리스트 목록 조회에 실패했습니다.")
 
@@ -107,15 +123,20 @@ async def get_my_checklists(
 async def save_checklist(
     checklist_id: str, 
     save_data: ChecklistSaveRequest,
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_database)
 ):
     """체크리스트 저장 - 내 리스트에 추가"""
     try:
-        # TODO: 실제 체크리스트 저장 로직
-        # 1. 원본 체크리스트 조회
-        # 2. 사용자의 리스트에 복사
-        # 3. customName 적용
+        user_id = current_user.get("id")
         
+        # 원본 체크리스트 조회
+        original_checklist = await checklist.get_with_items(db, checklist_id=checklist_id)
+        if not original_checklist:
+            raise HTTPException(status_code=404, detail="체크리스트를 찾을 수 없습니다.")
+        
+        # TODO: 체크리스트 복사 로직 구현
+        # 지금은 임시 응답
         return APIResponse(
             success=True,
             message="체크리스트가 내 리스트에 저장되었습니다.",
@@ -124,6 +145,9 @@ async def save_checklist(
                 "customName": save_data.customName
             }
         )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail="체크리스트 저장에 실패했습니다.")
 
@@ -132,14 +156,31 @@ async def update_item(
     checklist_id: str,
     item_id: str,
     item_data: ItemUpdateRequest,
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_database)
 ):
     """체크리스트 항목 완료 처리 - 진행률 업데이트"""
     try:
-        # TODO: 실제 항목 업데이트 로직
-        # 1. 권한 확인 (본인 소유 체크리스트)
-        # 2. 항목 상태 업데이트
-        # 3. 전체 진행률 재계산
+        user_id = current_user.get("id")
+        
+        # 체크리스트 권한 확인
+        db_checklist = await checklist.get(db, id=checklist_id)
+        if not db_checklist or db_checklist.user_id != user_id:
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+        
+        # 항목 업데이트
+        updated_item = await checklist_item.update_completion(
+            db,
+            item_id=item_id,
+            is_completed=item_data.isCompleted,
+            completed_at=item_data.completedAt
+        )
+        
+        if not updated_item:
+            raise HTTPException(status_code=404, detail="체크리스트 항목을 찾을 수 없습니다.")
+        
+        # 전체 진행률 재계산
+        updated_checklist = await checklist.update_progress(db, checklist_id=checklist_id)
         
         return APIResponse(
             success=True,
@@ -148,24 +189,42 @@ async def update_item(
                 "itemId": item_id,
                 "isCompleted": item_data.isCompleted,
                 "completedAt": item_data.completedAt,
-                "newProgress": 40.0  # 예시 진행률
+                "newProgress": updated_checklist.progress if updated_checklist else 0.0
             }
         )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail="항목 업데이트에 실패했습니다.")
 
 @router.delete("/{checklist_id}", response_model=APIResponse)
-async def delete_checklist(checklist_id: str, current_user=Depends(get_current_user)):
+async def delete_checklist(
+    checklist_id: str, 
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_database)
+):
     """체크리스트 삭제"""
     try:
-        # TODO: 실제 체크리스트 삭제 로직
-        # 1. 권한 확인 (본인 소유 체크리스트)
-        # 2. 체크리스트 삭제 (소프트 삭제 권장)
-        # 3. 관련 데이터 정리
+        user_id = current_user.get("id")
+        
+        # 체크리스트 조회 및 권한 확인
+        db_checklist = await checklist.get(db, id=checklist_id)
+        if not db_checklist:
+            raise HTTPException(status_code=404, detail="체크리스트를 찾을 수 없습니다.")
+        
+        if db_checklist.user_id != user_id:
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+        
+        # 체크리스트 삭제
+        await checklist.remove(db, id=checklist_id)
         
         return APIResponse(
             success=True,
             message="체크리스트가 삭제되었습니다."
         )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail="체크리스트 삭제에 실패했습니다.") 
