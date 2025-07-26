@@ -38,11 +38,20 @@ def get_async_database_url():
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://")
     
-    # sslmode를 ssl로 변환 (asyncpg 호환)
-    url = url.replace("sslmode=require", "ssl=true")
-    url = url.replace("sslmode=disable", "ssl=false")
-    url = url.replace("sslmode=prefer", "ssl=true")
-    url = url.replace("sslmode=allow", "ssl=false")
+    # sslmode 파라미터를 완전히 제거하고 ssl 파라미터로 변환 (asyncpg 호환)
+    import re
+    # sslmode=require|prefer -> ssl=true
+    url = re.sub(r'[&?]sslmode=(require|prefer)', '', url)
+    # sslmode=disable|allow -> ssl=false  
+    url = re.sub(r'[&?]sslmode=(disable|allow)', '', url)
+    # sslmode=verify-ca|verify-full -> ssl=true
+    url = re.sub(r'[&?]sslmode=(verify-ca|verify-full)', '', url)
+    
+    # SSL 파라미터 추가 (Neon DB는 SSL이 필요)
+    if '?' in url:
+        url += "&ssl=true"
+    else:
+        url += "?ssl=true"
     
     return url
 
