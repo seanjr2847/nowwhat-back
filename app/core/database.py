@@ -8,6 +8,7 @@ from sqlalchemy import text
 from app.core.config import settings
 import logging
 import os
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +27,36 @@ def get_sync_database_url():
     return url
 
 def get_async_database_url():
-    """비동기 데이터베이스 URL 생성 (FastAPI용)"""
+    """비동기 데이터베이스 URL 생성 (FastAPI용) - SSL 파라미터 처리"""
     url = settings.DATABASE_URL
+    
+    # asyncpg 호환을 위한 URL 변환
     if not url.startswith("postgresql+asyncpg://"):
         if url.startswith("postgres://"):
-            return url.replace("postgres://", "postgresql+asyncpg://")
+            url = url.replace("postgres://", "postgresql+asyncpg://")
         elif url.startswith("postgresql://"):
-            return url.replace("postgresql://", "postgresql+asyncpg://")
-    return url
+            url = url.replace("postgresql://", "postgresql+asyncpg://")
+    
+    # URL 파싱하여 sslmode 파라미터 처리
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    
+    # sslmode를 ssl로 변환 (asyncpg 호환)
+    if 'sslmode' in query_params:
+        sslmode = query_params['sslmode'][0]
+        del query_params['sslmode']
+        
+        if sslmode == 'require':
+            query_params['ssl'] = ['true']
+        elif sslmode == 'disable':
+            query_params['ssl'] = ['false']
+    
+    # 새 쿼리 문자열 생성
+    new_query = urlencode(query_params, doseq=True)
+    
+    # URL 재구성
+    new_parsed = parsed._replace(query=new_query)
+    return urlunparse(new_parsed)
 
 # 동기 엔진 (Alembic용) - 완전한 지연 초기화
 engine = None
@@ -61,8 +84,11 @@ def get_async_engine():
     global async_engine
     if async_engine is None:
         try:
+            async_url = get_async_database_url()
+            logger.info(f"Connecting to database with URL: {async_url.split('@')[0]}@***")
+            
             async_engine = create_async_engine(
-                get_async_database_url(),
+                async_url,
                 echo=settings.ENV == "development",
                 pool_pre_ping=True,
                 pool_recycle=300
