@@ -39,39 +39,30 @@ def get_async_database_url():
     if not url:
         return ""
     
-    # URL을 파트별로 분해해서 재구성
-    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    # 더 직접적인 방법으로 URL 변환
+    import re
     
-    parsed = urlparse(url)
+    # 1. 스키마 변경: postgres:// -> postgresql+asyncpg://
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://")
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
     
-    # asyncpg 호환 스키마로 변경
-    if parsed.scheme in ('postgres', 'postgresql'):
-        scheme = 'postgresql+asyncpg'
-    else:
-        scheme = parsed.scheme
+    # 2. sslmode 파라미터를 ssl로 변환
+    url = re.sub(r'[?&]sslmode=require', '?ssl=true', url)
+    url = re.sub(r'[?&]sslmode=prefer', '?ssl=true', url)
+    url = re.sub(r'[?&]sslmode=verify-ca', '?ssl=true', url)
+    url = re.sub(r'[?&]sslmode=verify-full', '?ssl=true', url)
+    url = re.sub(r'[?&]sslmode=disable', '?ssl=false', url)
+    url = re.sub(r'[?&]sslmode=allow', '?ssl=false', url)
     
-    # 쿼리 파라미터 처리
-    query_params = parse_qs(parsed.query) if parsed.query else {}
+    # 3. 혹시 ?가 중복되었을 경우 처리
+    url = re.sub(r'\?\?', '?', url)
     
-    # sslmode 파라미터 제거 (asyncpg는 ssl 파라미터 사용)
-    if 'sslmode' in query_params:
-        del query_params['sslmode']
+    # 디버깅을 위해 실제 URL 로그 출력
+    logger.info(f"Converted URL for asyncpg: {url}")
     
-    # ssl=true 추가 (Neon DB는 SSL 필요)
-    query_params['ssl'] = ['true']
-    
-    # URL 재구성
-    new_query = urlencode(query_params, doseq=True)
-    final_url = urlunparse((
-        scheme,
-        parsed.netloc,
-        parsed.path,
-        parsed.params,
-        new_query,
-        parsed.fragment
-    ))
-    
-    return final_url
+    return url
 
 # 동기 엔진 (Alembic용) - 완전한 지연 초기화
 engine = None
