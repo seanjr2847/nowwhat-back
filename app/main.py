@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from app.schemas.nowwhat import ErrorResponse
 from app.core.config import settings
 from app.api.v1.api import api_router
+from app.core.database import reset_async_engine
 import logging
 
 # 로깅 설정
@@ -30,6 +31,15 @@ app.add_middleware(
 
 # API 라우터 포함
 app.include_router(api_router, prefix="/api/v1")
+
+# 애플리케이션 시작 이벤트
+@app.on_event("startup")
+async def startup_event():
+    """애플리케이션 시작 시 실행되는 이벤트"""
+    logger.info("Application startup...")
+    # 엔진 리셋으로 새로운 URL 적용
+    reset_async_engine()
+    logger.info("Database engine reset completed")
 
 # 전역 예외 핸들러
 @app.exception_handler(Exception)

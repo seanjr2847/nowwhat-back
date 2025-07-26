@@ -18,11 +18,19 @@ def get_sync_database_url():
     """동기 데이터베이스 URL 생성 (Alembic용)"""
     url = settings.DATABASE_URL
     if url.startswith("postgresql+asyncpg://"):
-        return url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
+        url = url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
     elif url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql+psycopg://")
+        url = url.replace("postgres://", "postgresql+psycopg://")
     elif url.startswith("postgresql://"):
-        return url.replace("postgresql://", "postgresql+psycopg://")
+        url = url.replace("postgresql://", "postgresql+psycopg://")
+    
+    # 동기 엔진용 sslmode 변환 (psycopg는 sslmode를 지원함)
+    # 하지만 혹시 모르니 ssl 파라미터로도 변환
+    import re
+    if 'sslmode=require' in url:
+        # psycopg는 sslmode를 지원하므로 그대로 유지하거나 ssl로 변환
+        url = url.replace('sslmode=require', 'sslmode=require')
+    
     return url
 
 def get_async_database_url():
@@ -31,33 +39,39 @@ def get_async_database_url():
     if not url:
         return ""
     
-    logger.info(f"Original URL: {url}")
+    # URL을 파트별로 분해해서 재구성
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
     
-    # asyncpg 호환을 위한 URL 변환
-    if not url.startswith("postgresql+asyncpg://"):
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+asyncpg://")
-        elif url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://")
+    parsed = urlparse(url)
     
-    logger.info(f"After protocol change: {url}")
-    
-    # sslmode 파라미터를 완전히 제거하고 ssl 파라미터로 변환 (asyncpg 호환)
-    import re
-    # sslmode 파라미터 제거
-    url = re.sub(r'[?&]sslmode=[^&]*', '', url)
-    
-    logger.info(f"After sslmode removal: {url}")
-    
-    # SSL 파라미터 추가 (Neon DB는 SSL이 필요)
-    if '?' in url:
-        url += "&ssl=true"
+    # asyncpg 호환 스키마로 변경
+    if parsed.scheme in ('postgres', 'postgresql'):
+        scheme = 'postgresql+asyncpg'
     else:
-        url += "?ssl=true"
+        scheme = parsed.scheme
     
-    logger.info(f"Final URL: {url}")
+    # 쿼리 파라미터 처리
+    query_params = parse_qs(parsed.query) if parsed.query else {}
     
-    return url
+    # sslmode 파라미터 제거 (asyncpg는 ssl 파라미터 사용)
+    if 'sslmode' in query_params:
+        del query_params['sslmode']
+    
+    # ssl=true 추가 (Neon DB는 SSL 필요)
+    query_params['ssl'] = ['true']
+    
+    # URL 재구성
+    new_query = urlencode(query_params, doseq=True)
+    final_url = urlunparse((
+        scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment
+    ))
+    
+    return final_url
 
 # 동기 엔진 (Alembic용) - 완전한 지연 초기화
 engine = None
@@ -99,6 +113,12 @@ def get_async_engine():
             logger.error(f"비동기 엔진 초기화 실패: {e}")
             raise
     return async_engine
+
+def reset_async_engine():
+    """비동기 엔진 리셋 (새로운 URL 적용을 위해)"""
+    global async_engine
+    async_engine = None
+    logger.info("비동기 엔진이 리셋되었습니다.")
 
 # 비동기 세션 메이커 - 지연 초기화
 _AsyncSessionLocal = None
