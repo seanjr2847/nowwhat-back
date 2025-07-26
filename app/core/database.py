@@ -8,7 +8,6 @@ from sqlalchemy import text
 from app.core.config import settings
 import logging
 import os
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +26,10 @@ def get_sync_database_url():
     return url
 
 def get_async_database_url():
-    """비동기 데이터베이스 URL 생성 (FastAPI용) - SSL 파라미터 처리"""
+    """비동기 데이터베이스 URL 생성 (FastAPI용) - asyncpg 호환 변환"""
     url = settings.DATABASE_URL
+    if not url:
+        return ""
     
     # asyncpg 호환을 위한 URL 변환
     if not url.startswith("postgresql+asyncpg://"):
@@ -37,7 +38,7 @@ def get_async_database_url():
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://")
     
-    # sslmode를 ssl로 간단하게 변환 (asyncpg 호환)
+    # sslmode를 ssl로 변환 (asyncpg 호환)
     url = url.replace("sslmode=require", "ssl=true")
     url = url.replace("sslmode=disable", "ssl=false")
     url = url.replace("sslmode=prefer", "ssl=true")
