@@ -90,14 +90,30 @@ def get_async_engine():
     global async_engine
     if async_engine is None:
         try:
-            async_url = get_async_database_url()
-            logger.info(f"Connecting to database with URL: {async_url.split('@')[0]}@***")
+            # URL 방식 대신 연결 파라미터 딕셔너리 방식 사용
+            from urllib.parse import urlparse
+            
+            parsed = urlparse(settings.DATABASE_URL)
+            
+            # asyncpg 연결 파라미터 직접 구성
+            connect_args = {
+                "ssl": True,  # SSL 활성화
+                "server_settings": {
+                    "application_name": "nowwhat-backend"
+                }
+            }
+            
+            # URL 재구성 (sslmode 제거, ssl 파라미터도 제거하고 connect_args에서 처리)
+            clean_url = f"postgresql+asyncpg://{parsed.netloc}{parsed.path}"
+            
+            logger.info(f"Connecting with clean URL: {clean_url} and SSL in connect_args")
             
             async_engine = create_async_engine(
-                async_url,
+                clean_url,
                 echo=settings.ENV == "development",
                 pool_pre_ping=True,
-                pool_recycle=300
+                pool_recycle=300,
+                connect_args=connect_args
             )
             logger.info("비동기 엔진이 성공적으로 초기화되었습니다.")
         except Exception as e:
