@@ -37,26 +37,13 @@ def get_async_database_url():
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://")
     
-    # URL 파싱하여 sslmode 파라미터 처리
-    parsed = urlparse(url)
-    query_params = parse_qs(parsed.query)
+    # sslmode를 ssl로 간단하게 변환 (asyncpg 호환)
+    url = url.replace("sslmode=require", "ssl=true")
+    url = url.replace("sslmode=disable", "ssl=false")
+    url = url.replace("sslmode=prefer", "ssl=true")
+    url = url.replace("sslmode=allow", "ssl=false")
     
-    # sslmode를 ssl로 변환 (asyncpg 호환)
-    if 'sslmode' in query_params:
-        sslmode = query_params['sslmode'][0]
-        del query_params['sslmode']
-        
-        if sslmode == 'require':
-            query_params['ssl'] = ['true']
-        elif sslmode == 'disable':
-            query_params['ssl'] = ['false']
-    
-    # 새 쿼리 문자열 생성
-    new_query = urlencode(query_params, doseq=True)
-    
-    # URL 재구성
-    new_parsed = parsed._replace(query=new_query)
-    return urlunparse(new_parsed)
+    return url
 
 # 동기 엔진 (Alembic용) - 완전한 지연 초기화
 engine = None

@@ -10,10 +10,7 @@ class Settings(BaseSettings):
     ENV: str = os.getenv("ENV", "development")
     
     # Neon PostgreSQL 데이터베이스 설정
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", 
-        "postgresql+asyncpg://neondb_owner:npg_0PAEIUGMxJq6@ep-orange-hall-ad5vlgl8-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
-    )
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     
     # JWT 설정
     SECRET_KEY: str = os.getenv("SECRET_KEY", "nowwhat-super-secret-key-for-production-change-this")
