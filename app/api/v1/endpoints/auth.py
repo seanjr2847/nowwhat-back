@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from app.schemas.nowwhat import GoogleLoginRequest, LoginResponse, LogoutRequest, APIResponse, UserProfile
 from app.core.auth import get_current_user
-from app.core.database import get_database
+from app.core.database import get_db
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.services.google_auth import google_auth_service
 from app.crud.user import user
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.post("/google", response_model=LoginResponse)
 async def google_login(
     login_data: GoogleLoginRequest,
-    db: AsyncSession = Depends(get_database)
+    db: Session = Depends(get_db)
 ):
     """구글 OAuth 로그인"""
     try:
@@ -37,11 +37,11 @@ async def google_login(
         logger.info(f"Google login attempt for email: {google_user_info['email']}")
         
         # 2. 사용자 조회 또는 생성
-        db_user = await user.get_by_google_id(db, google_id=google_user_info['google_id'])
+        db_user = user.get_by_google_id(db, google_id=google_user_info['google_id'])
         
         if not db_user:
             # 이메일로 기존 계정 확인
-            db_user = await user.get_by_email(db, email=google_user_info['email'])
+            db_user = user.get_by_email(db, email=google_user_info['email'])
             
             if db_user:
                 # 기존 계정에 구글 ID 연결
@@ -49,8 +49,8 @@ async def google_login(
                 db_user.profile_image = google_user_info.get('profile_image')
                 db_user.last_login_at = datetime.utcnow()
                 db.add(db_user)
-                await db.commit()
-                await db.refresh(db_user)
+                db.commit()
+                db.refresh(db_user)
                 logger.info(f"Linked Google account to existing user: {db_user.email}")
             else:
                 # 새 사용자 생성
@@ -61,7 +61,7 @@ async def google_login(
                     "google_id": google_user_info['google_id'],
                     "last_login_at": datetime.utcnow()
                 }
-                db_user = await user.create_user(db, user_data=user_data)
+                db_user = user.create_user(db, user_data=user_data)
                 logger.info(f"Created new user: {db_user.email}")
         else:
             # 기존 사용자 정보 업데이트
@@ -69,8 +69,8 @@ async def google_login(
             db_user.profile_image = google_user_info.get('profile_image')
             db_user.last_login_at = datetime.utcnow()
             db.add(db_user)
-            await db.commit()
-            await db.refresh(db_user)
+            db.commit()
+            db.refresh(db_user)
             logger.info(f"Updated existing user: {db_user.email}")
         
         # 3. JWT 토큰 생성
@@ -84,7 +84,7 @@ async def google_login(
             expires_at=datetime.utcnow() + timedelta(days=7)
         )
         db.add(user_session)
-        await db.commit()
+        db.commit()
         
         # 5. 응답 반환
         return LoginResponse(
@@ -113,13 +113,13 @@ async def google_login(
 @router.get("/me")
 async def get_current_user_info(
     current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_database)
+    db: Session = Depends(get_db)
 ):
     """현재 로그인한 사용자 정보 조회"""
     try:
         # get_current_user에서 이미 사용자 정보를 조회했지만, 
         # 최신 정보를 위해 다시 조회
-        db_user = await user.get(db, id=current_user["id"])
+        db_user = user.get(db, id=current_user.id)
         
         if not db_user:
             raise HTTPException(
@@ -150,33 +150,28 @@ async def get_current_user_info(
 async def logout(
     logout_data: LogoutRequest, 
     current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_database)
+    db: Session = Depends(get_db)
 ):
     """로그아웃"""
     try:
         # 리프레시 토큰 검증
         user_id = verify_token(logout_data.refreshToken, token_type="refresh")
         
-        if not user_id or user_id != current_user["id"]:
+        if not user_id or user_id != current_user.id:
             raise HTTPException(
                 status_code=400, 
                 detail="유효하지 않은 리프레시 토큰입니다."
             )
         
         # 데이터베이스에서 해당 세션 삭제
-        from sqlalchemy import select, delete
-        
-        # 해당 리프레시 토큰으로 세션 찾기
-        stmt = select(UserSession).where(
+        session = db.query(UserSession).filter(
             UserSession.user_id == user_id,
             UserSession.refresh_token == logout_data.refreshToken
-        )
-        result = await db.execute(stmt)
-        session = result.scalars().first()
+        ).first()
         
         if session:
-            await db.delete(session)
-            await db.commit()
+            db.delete(session)
+            db.commit()
             logger.info(f"User {user_id} logged out successfully")
         
         return APIResponse(
@@ -196,7 +191,7 @@ async def logout(
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh_token(
     refresh_data: LogoutRequest,  # 같은 스키마 재사용 (refreshToken 필드)
-    db: AsyncSession = Depends(get_database)
+    db: Session = Depends(get_db)
 ):
     """액세스 토큰 갱신"""
     try:
@@ -210,15 +205,11 @@ async def refresh_token(
             )
         
         # 데이터베이스에서 세션 확인
-        from sqlalchemy import select
-        
-        stmt = select(UserSession).where(
+        session = db.query(UserSession).filter(
             UserSession.user_id == user_id,
             UserSession.refresh_token == refresh_data.refreshToken,
             UserSession.expires_at > datetime.utcnow()
-        )
-        result = await db.execute(stmt)
-        session = result.scalars().first()
+        ).first()
         
         if not session:
             raise HTTPException(
@@ -227,7 +218,7 @@ async def refresh_token(
             )
         
         # 사용자 정보 조회
-        db_user = await user.get(db, id=user_id)
+        db_user = user.get(db, id=user_id)
         if not db_user:
             raise HTTPException(
                 status_code=404, 

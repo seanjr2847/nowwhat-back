@@ -1,8 +1,7 @@
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from app.core.database import Base
 
 ModelType = TypeVar("ModelType", bound=Base)
@@ -20,30 +19,28 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """
         self.model = model
 
-    async def get(self, db: AsyncSession, id: Any) -> Optional[ModelType]:
+    def get(self, db: Session, id: Any) -> Optional[ModelType]:
         """ID로 단일 레코드 조회"""
-        result = await db.execute(select(self.model).where(self.model.id == id))
-        return result.scalars().first()
+        return db.query(self.model).filter(self.model.id == id).first()
 
-    async def get_multi(
-        self, db: AsyncSession, *, skip: int = 0, limit: int = 100
+    def get_multi(
+        self, db: Session, *, skip: int = 0, limit: int = 100
     ) -> List[ModelType]:
         """다중 레코드 조회 (페이지네이션)"""
-        result = await db.execute(select(self.model).offset(skip).limit(limit))
-        return result.scalars().all()
+        return db.query(self.model).offset(skip).limit(limit).all()
 
-    async def create(self, db: AsyncSession, *, obj_in: CreateSchemaType) -> ModelType:
+    def create(self, db: Session, *, obj_in: CreateSchemaType) -> ModelType:
         """새 레코드 생성"""
         obj_in_data = jsonable_encoder(obj_in)
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
+        db.commit()
+        db.refresh(db_obj)
         return db_obj
 
-    async def update(
+    def update(
         self,
-        db: AsyncSession,
+        db: Session,
         *,
         db_obj: ModelType,
         obj_in: Union[UpdateSchemaType, Dict[str, Any]]
@@ -58,13 +55,13 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             if field in update_data:
                 setattr(db_obj, field, update_data[field])
         db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
+        db.commit()
+        db.refresh(db_obj)
         return db_obj
 
-    async def remove(self, db: AsyncSession, *, id: int) -> ModelType:
+    def remove(self, db: Session, *, id: int) -> ModelType:
         """레코드 삭제"""
-        obj = await self.get(db, id=id)
-        await db.delete(obj)
-        await db.commit()
+        obj = self.get(db, id=id)
+        db.delete(obj)
+        db.commit()
         return obj 
