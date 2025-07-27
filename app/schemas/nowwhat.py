@@ -73,6 +73,50 @@ class AnswerRequest(BaseModel):
     answeredAt: datetime = Field(default_factory=datetime.now)
 
 # 체크리스트 관련 스키마
+class ChecklistItemBase(BaseModel):
+    title: str = Field(..., description="체크리스트 아이템 제목")
+    description: Optional[str] = Field(None, description="체크리스트 아이템 설명")
+
+class ChecklistItemCreate(ChecklistItemBase):
+    pass
+
+class ChecklistItemResponse(ChecklistItemBase):
+    id: str
+    order: int
+    isCompleted: bool = False
+    completedAt: Optional[str] = None
+
+class ChecklistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    isCompleted: Optional[bool] = None
+    order: Optional[int] = None
+
+class ChecklistCreate(BaseModel):
+    title: str = Field(..., description="체크리스트 제목")
+    category: str = Field(..., description="체크리스트 카테고리")
+    description: Optional[str] = Field(None, description="체크리스트 설명")
+    items: List[ChecklistItemCreate] = Field(..., description="체크리스트 아이템들")
+
+class ChecklistUpdate(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+
+class ChecklistResponse(BaseModel):
+    id: str
+    title: str
+    category: str
+    description: Optional[str] = None
+    totalItems: int
+    completedItems: int
+    progressPercentage: float
+    isCompleted: bool = False
+    items: List[ChecklistItemResponse]
+    createdAt: str
+    updatedAt: Optional[str] = None
+    completedAt: Optional[str] = None
+
 class ChecklistItem(BaseModel):
     id: str
     text: str
