@@ -13,6 +13,7 @@ from app.crud.session import (
 )
 from sqlalchemy.orm import Session
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ async def analyze_intents(
         raise HTTPException(status_code=500, detail="의도 분석 중 오류가 발생했습니다.")
 
 @router.get("/analyze/{goal_id}", response_model=IntentAnalyzeResponse)
-async def analyze_intents_legacy(goal_id: str, current_user=Depends(get_current_user)):
+def analyze_intents_legacy(goal_id: str, current_user=Depends(get_current_user)):
     """분석된 목표의 의도 옵션 조회 - 4가지 의도 제공 (기존 엔드포인트)"""
     try:
         # TODO: 실제 의도 분석 로직
