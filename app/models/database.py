@@ -124,4 +124,16 @@ class UserSession(Base):
     created_at = Column(DateTime, server_default=func.now())
     
     # 관계
-    user = relationship("User") 
+    user = relationship("User")
+
+class IntentSession(Base):
+    __tablename__ = "intent_sessions"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, unique=True, nullable=False)
+    goal = Column(Text, nullable=False)
+    user_ip = Column(String, nullable=True)
+    user_country = Column(String, nullable=True)
+    generated_intents = Column(JSON, nullable=True)  # 생성된 의도 옵션들
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now()) 

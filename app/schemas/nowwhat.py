@@ -43,6 +43,19 @@ class Intent(BaseModel):
 class IntentAnalyzeResponse(APIResponse):
     data: List[Intent]
 
+# 새로운 의도 분석 스키마
+class IntentAnalyzeRequest(BaseModel):
+    goal: str = Field(..., min_length=1, max_length=100, description="사용자가 입력한 목표 텍스트")
+
+class IntentOption(BaseModel):
+    title: str = Field(..., description="의도 제목")
+    description: str = Field(..., description="의도 설명")
+    icon: str = Field(..., description="아이콘")
+
+class IntentAnalyzeApiResponse(BaseModel):
+    sessionId: str = Field(..., description="세션 ID")
+    intents: List[IntentOption] = Field(..., description="의도 목록")
+
 # 질문 관련 스키마
 class Question(BaseModel):
     id: str
