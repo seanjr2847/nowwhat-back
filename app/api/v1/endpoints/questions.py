@@ -9,8 +9,7 @@ from app.core.database import get_db
 from app.services.gemini_service import gemini_service
 from app.utils.geo_utils import detect_country_from_ip, get_client_ip
 from app.crud.session import (
-    validate_session_for_questions,
-    get_intent_title_from_session,
+    validate_session_basic,
     save_question_set
 )
 import logging
@@ -30,31 +29,23 @@ async def generate_questions(
     """선택된 의도에 따른 맞춤 질문 생성 (POST)
     
     비즈니스 흐름:
-    1. 세션 유효성 검증 (sessionId + intentId)
+    1. 세션 유효성 검증 (sessionId)
     2. 사용자 IP 기반 국가 자동 감지
-    3. Gemini API를 통한 맞춤 질문 생성
+    3. Gemini API를 통한 맞춤 질문 생성 (goal + intentTitle 사용)
     4. 질문 세트 ID 생성 및 DB 저장
     5. 클라이언트 응답
     """
     try:
-        # 요청에서 sessionId 추출 (우선순위: body > header)
+        # 요청에서 필수 정보 추출
         session_id = question_request.sessionId
-        if not session_id:
-            session_id = request.headers.get("X-Session-Id")
+        goal = question_request.goal
+        intent_title = question_request.intentTitle
         
-        if not session_id:
-            raise HTTPException(
-                status_code=400, 
-                detail="세션 ID가 필요합니다. 요청 body의 sessionId 또는 X-Session-Id 헤더를 포함해주세요."
-            )
+        logger.info(f"Question generation request - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}'")
         
-        intent_id = question_request.intentId
-        
-        logger.info(f"Question generation request - Session: {session_id}, Intent: {intent_id}")
-        
-        # 1. 세션 유효성 검증
-        is_valid, db_session, error_message = validate_session_for_questions(
-            db, session_id, intent_id
+        # 1. 세션 유효성 검증 (의도 검증은 생략, 직접 전달받음)
+        is_valid, db_session, error_message = validate_session_basic(
+            db, session_id
         )
         
         if not is_valid:
@@ -67,16 +58,9 @@ async def generate_questions(
         
         logger.info(f"Detected country: {user_country} for IP: {client_ip}")
         
-        # 3. 세션에서 목표와 의도 제목 추출
-        goal = db_session.goal
-        intent_title = get_intent_title_from_session(db_session, intent_id)
-        
-        if not intent_title:
-            intent_title = intent_id  # 백업으로 ID 사용
-        
+        # 3. Gemini API를 통한 맞춤 질문 생성 (직접 전달받은 정보 사용)
         logger.info(f"Generating questions for goal: '{goal}', intent: '{intent_title}'")
         
-        # 4. Gemini API를 통한 맞춤 질문 생성
         try:
             questions = await gemini_service.generate_questions(
                 goal=goal,
@@ -95,23 +79,23 @@ async def generate_questions(
                 user_country=user_country
             )
         
-        # 5. 질문 검증 및 기본값 설정
+        # 4. 질문 검증 및 기본값 설정
         if not questions or len(questions) == 0:
             logger.warning("No questions generated, using default template")
             questions = _get_emergency_questions()
         
-        # 6. 질문 세트 ID 생성 및 DB 저장
+        # 5. 질문 세트 ID 생성 및 DB 저장
         questions_dict = [question.dict() for question in questions]
         question_set_id = save_question_set(
             db=db,
             session_id=session_id,
-            intent_id=intent_id,
+            intent_id=intent_title,  # intentTitle을 intent_id로 사용
             questions=questions_dict
         )
         
         logger.info(f"Saved question set with ID: {question_set_id}")
         
-        # 7. 성공 응답
+        # 6. 성공 응답
         return QuestionGenerateResponse(questions=questions)
         
     except HTTPException:

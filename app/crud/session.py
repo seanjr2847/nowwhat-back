@@ -135,6 +135,22 @@ def get_intent_session_by_session_id(
         IntentSession.session_id == session_id
     ).first()
 
+def validate_session_basic(
+    db: Session,
+    session_id: str
+) -> tuple[bool, Optional[IntentSession], Optional[str]]:
+    """기본 세션 유효성 검증 (의도 검증 없음)"""
+    # 세션 존재 여부 확인
+    db_session = get_intent_session_by_session_id(db, session_id)
+    if not db_session:
+        return False, None, "세션을 찾을 수 없습니다."
+    
+    # 24시간 유효기간 확인
+    if db_session.created_at < datetime.utcnow() - timedelta(hours=24):
+        return False, db_session, "세션이 만료되었습니다."
+    
+    return True, db_session, None
+
 def validate_session_for_questions(
     db: Session,
     session_id: str,

@@ -3,8 +3,9 @@ from typing import List, Optional
 
 # Request
 class QuestionGenerateRequest(BaseModel):
-    intentId: str
-    sessionId: Optional[str] = None  # 세션 ID (헤더 대신 body로도 전달 가능)
+    sessionId: str
+    goal: str
+    intentTitle: str
 
 # Response models
 class Option(BaseModel):
