@@ -208,6 +208,7 @@ async def test_dependencies(request: Request, db: Session = Depends(get_db)):
 async def analyze_intents(
     request: Request,
     intent_request: IntentAnalyzeRequest,
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """사용자 입력을 분석하여 의도 옵션 생성"""
@@ -217,6 +218,7 @@ async def analyze_intents(
         logger.info(f"Request headers: {dict(request.headers)}")
         logger.info(f"Received intent_request: {intent_request}")
         logger.info(f"Goal: {intent_request.goal}")
+        logger.info(f"Authenticated user: {current_user.email if current_user else 'None'}")
         
         # 1. 입력 검증 (Pydantic이 자동으로 처리하지만 추가 검증)
         goal = intent_request.goal.strip()

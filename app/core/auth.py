@@ -18,11 +18,11 @@ def get_current_user(
 ) -> User:
     """현재 인증된 사용자 정보 조회"""
     try:
-        # JWT 토큰 검증
-        payload = verify_token(credentials.credentials)
-        user_id = payload.get("sub")
+        # JWT 토큰 검증 - verify_token은 user_id를 직접 반환
+        user_id = verify_token(credentials.credentials)
         
         if not user_id:
+            logger.warning("Token verification failed - no user_id returned")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="유효하지 않은 토큰입니다."
@@ -33,11 +33,13 @@ def get_current_user(
             user = db.query(User).filter(User.id == user_id).first()
             
             if not user:
+                logger.warning(f"User not found in database: {user_id}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="사용자를 찾을 수 없습니다."
                 )
             
+            logger.info(f"Successfully authenticated user: {user.email}")
             return user
             
         except SQLAlchemyError as e:
@@ -72,8 +74,7 @@ def get_optional_user(
             return None
         
         token = auth_header.split(" ")[1]
-        payload = verify_token(token)
-        user_id = payload.get("sub")
+        user_id = verify_token(token)
         
         if not user_id:
             return None

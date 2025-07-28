@@ -2,3 +2,5 @@
 __pycache__
 .env
 .vercel
+.vscode/settings.json
+CLAUDE.md

@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from app.schemas.questions import (
     QuestionGenerateRequest, QuestionGenerateResponse, 
-    Question, Option
+    Question, Option,
+    QuestionAnswersRequest, QuestionAnswersResponse
 )
 from app.core.auth import get_current_user
 from app.core.database import get_db
@@ -12,6 +13,8 @@ from app.crud.session import (
     validate_session_basic,
     save_question_set
 )
+from app.services.checklist_orchestrator import checklist_orchestrator, ChecklistGenerationError
+from app.models.database import User
 import logging
 from typing import Dict, Any
 
@@ -147,6 +150,85 @@ def _get_emergency_questions() -> list[Question]:
             required=True
         )
     ]
+
+@router.post("/answer", response_model=QuestionAnswersResponse)
+async def submit_answers(
+    request: QuestionAnswersRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """모든 답변을 한번에 제출하여 체크리스트 생성
+    
+    비즈니스 흐름:
+    1. 요청 데이터 검증 (goal, selectedIntent, answers)
+    2. 사용자 답변 데이터베이스 저장
+    3. Gemini AI를 통한 기본 체크리스트 생성
+    4. Perplexity API를 통한 10개 병렬 검색 실행
+    5. 검색 결과와 AI 생성 결과 병합 및 보강
+    6. 최종 체크리스트 데이터베이스 저장
+    7. 체크리스트 ID 및 리다이렉트 URL 반환
+    """
+    try:
+        # 요청 데이터 로깅
+        logger.info(f"Answer submission request - User: {current_user.id}, Goal: '{request.goal}', Intent: '{request.selectedIntent.title}', Answers: {len(request.answers)}")
+        
+        # 입력 데이터 검증
+        if not request.goal.strip():
+            raise HTTPException(status_code=400, detail="목표(goal)는 필수입니다.")
+        
+        if not request.selectedIntent.title.strip():
+            raise HTTPException(status_code=400, detail="선택된 의도(selectedIntent)는 필수입니다.")
+        
+        if not request.answers or len(request.answers) == 0:
+            raise HTTPException(status_code=400, detail="답변(answers)은 최소 1개 이상 필요합니다.")
+        
+        # 답변 내용 검증
+        for i, answer in enumerate(request.answers):
+            if not answer.questionText.strip():
+                raise HTTPException(status_code=400, detail=f"질문 {i+1}의 내용이 비어있습니다.")
+            
+            # answer가 문자열이거나 리스트인지 확인
+            if not answer.answer:
+                raise HTTPException(status_code=400, detail=f"질문 {i+1}의 답변이 비어있습니다.")
+            
+            if isinstance(answer.answer, list) and len(answer.answer) == 0:
+                raise HTTPException(status_code=400, detail=f"질문 {i+1}의 답변이 비어있습니다.")
+        
+        logger.info(f"Request validation successful for user {current_user.id}")
+        
+        # 체크리스트 생성 오케스트레이션 실행
+        try:
+            response = await checklist_orchestrator.process_answers_to_checklist(
+                request=request,
+                user=current_user,
+                db=db
+            )
+            
+            logger.info(f"Checklist generation successful: {response.checklistId}")
+            return response
+            
+        except ChecklistGenerationError as e:
+            logger.error(f"Checklist generation error for user {current_user.id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+        
+        except Exception as e:
+            logger.error(f"Unexpected error during checklist generation: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail="체크리스트 생성 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+            )
+    
+    except HTTPException:
+        # FastAPI HTTPException은 그대로 전파
+        raise
+    
+    except Exception as e:
+        # 예상치 못한 모든 오류 처리
+        logger.error(f"Unexpected error in submit_answers endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="서버 내부 오류가 발생했습니다. 관리자에게 문의해주세요."
+        )
 
 # 기존 엔드포인트들도 유지 (하위 호환성)
 @router.get("/generate/{intent_id}")
