@@ -88,11 +88,3 @@ def get_optional_user(
     except Exception as e:
         logger.warning(f"Optional authentication error: {e}")
         return None
-
-async def verify_notion_version(version: str = "2022-06-28"):
-    """
-    노션 API 버전을 확인합니다.
-    헤더에서 Notion-Version을 확인해야 합니다.
-    """
-    # TODO: 실제 버전 확인 로직 구현
-    return True 

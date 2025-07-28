@@ -40,8 +40,6 @@ class Settings(BaseSettings):
     RATE_LIMIT_CALLS: int = int(os.getenv("RATE_LIMIT_CALLS", "100"))
     RATE_LIMIT_PERIOD: int = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
     
-    # 노션 API 버전
-    NOTION_VERSION: str = "2022-06-28"
     
     class Config:
         case_sensitive = True

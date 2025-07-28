@@ -2,48 +2,6 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from enum import Enum
 
-class NotionObjectType(str, Enum):
-    DATABASE = "database"
-    PAGE = "page"
-    BLOCK = "block"
-    USER = "user"
-    COMMENT = "comment"
-
-class BlockType(str, Enum):
-    PARAGRAPH = "paragraph"
-    HEADING_1 = "heading_1"
-    HEADING_2 = "heading_2"
-    HEADING_3 = "heading_3"
-    BULLETED_LIST_ITEM = "bulleted_list_item"
-    NUMBERED_LIST_ITEM = "numbered_list_item"
-    TO_DO = "to_do"
-    TOGGLE = "toggle"
-    CODE = "code"
-    QUOTE = "quote"
-    CALLOUT = "callout"
-    DIVIDER = "divider"
-
-class PropertyType(str, Enum):
-    TITLE = "title"
-    RICH_TEXT = "rich_text"
-    NUMBER = "number"
-    SELECT = "select"
-    MULTI_SELECT = "multi_select"
-    DATE = "date"
-    PEOPLE = "people"
-    FILES = "files"
-    CHECKBOX = "checkbox"
-    URL = "url"
-    EMAIL = "email"
-    PHONE_NUMBER = "phone_number"
-    FORMULA = "formula"
-    RELATION = "relation"
-    ROLLUP = "rollup"
-    CREATED_TIME = "created_time"
-    CREATED_BY = "created_by"
-    LAST_EDITED_TIME = "last_edited_time"
-    LAST_EDITED_BY = "last_edited_by"
-
 # 메모리 내 저장소 (실제 구현에서는 데이터베이스 사용)
 class InMemoryStore:
     def __init__(self):

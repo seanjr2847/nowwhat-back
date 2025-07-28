@@ -45,7 +45,15 @@ class IntentAnalyzeResponse(APIResponse):
 
 # 새로운 의도 분석 스키마
 class IntentAnalyzeRequest(BaseModel):
-    goal: str = Field(..., min_length=1, max_length=100, description="사용자가 입력한 목표 텍스트")
+    goal: str = Field(..., description="사용자가 입력한 목표 텍스트")
+
+# 디버깅용 간단한 모델
+class SimpleTestRequest(BaseModel):
+    goal: str
+
+class SimpleTestResponse(BaseModel):
+    received_goal: str
+    success: bool = True
 
 class IntentOption(BaseModel):
     title: str = Field(..., description="의도 제목")
