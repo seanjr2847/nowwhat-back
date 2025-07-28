@@ -37,9 +37,27 @@ app.include_router(api_router, prefix="/api/v1")
 async def startup_event():
     """애플리케이션 시작 시 실행되는 이벤트"""
     logger.info("Application startup...")
+    
     # 엔진 리셋으로 새로운 URL 적용
     reset_async_engine()
     logger.info("Database engine reset completed")
+    
+    # 프로덕션 환경에서 테이블 자동 생성
+    try:
+        from app.core.database import create_tables, test_connection
+        logger.info("Testing database connection...")
+        
+        if test_connection():
+            logger.info("Database connection successful")
+            logger.info("Creating database tables...")
+            create_tables()
+            logger.info("Database tables created/verified successfully")
+        else:
+            logger.error("Database connection failed during startup")
+    except Exception as e:
+        logger.error(f"Database setup error during startup: {e}")
+        # 에러가 발생해도 앱은 계속 실행 (기존 테이블이 있을 수 있음)
+        pass
 
 # 전역 예외 핸들러
 @app.exception_handler(Exception)
