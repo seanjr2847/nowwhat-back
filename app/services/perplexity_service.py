@@ -25,65 +25,121 @@ class PerplexityService:
         self.max_concurrent_searches = getattr(settings, 'MAX_CONCURRENT_SEARCHES', 10)
         self.timeout_seconds = getattr(settings, 'SEARCH_TIMEOUT_SECONDS', 15)
         
+        # 상세한 초기화 로깅
+        logger.info("=" * 60)
+        logger.info("🔍 PERPLEXITY SERVICE 초기화")
+        logger.info("=" * 60)
+        
         # API 키 상태 로깅
         if not self.api_key:
             logger.error("🚨 PERPLEXITY_API_KEY not found in environment variables!")
-            logger.error("   체크리스트 아이템에 description이 추가되지 않습니다.")
-            logger.error("   환경변수 PERPLEXITY_API_KEY를 설정해주세요.")
+            logger.error("   ❌ 체크리스트 아이템에 details가 추가되지 않습니다.")
+            logger.error("   💡 환경변수 PERPLEXITY_API_KEY를 설정해주세요.")
+            logger.error("   📝 예시: export PERPLEXITY_API_KEY=pplx-xxxxx")
         else:
-            logger.info(f"✅ Perplexity API 키 확인됨 (길이: {len(self.api_key)} 문자)")
-            logger.info(f"   최대 동시 검색: {self.max_concurrent_searches}개")
-            logger.info(f"   검색 타임아웃: {self.timeout_seconds}초")
+            logger.info(f"✅ Perplexity API 키 확인됨")
+            logger.info(f"   🔑 키 길이: {len(self.api_key)} 문자")
+            logger.info(f"   🌐 API URL: {self.api_url}")
+            logger.info(f"   ⚡ 최대 동시 검색: {self.max_concurrent_searches}개")
+            logger.info(f"   ⏱️  검색 타임아웃: {self.timeout_seconds}초")
+        
+        logger.info("=" * 60)
     
     async def parallel_search(self, queries: List[str]) -> List[SearchResult]:
         """10개의 검색 쿼리를 병렬로 실행"""
-        if not self.api_key:
-            logger.error("🚨 Perplexity API 키가 없어 검색을 건너뜁니다")
-            logger.error(f"   {len(queries)}개 쿼리: {', '.join(queries[:3])}{'...' if len(queries) > 3 else ''}")
-            return [self._create_empty_result(query) for query in queries]
+        logger.info("🚀 PERPLEXITY 병렬 검색 시작")
+        logger.info(f"   📝 요청된 쿼리 수: {len(queries)}개")
         
         if not queries:
+            logger.warning("⚠️  검색 쿼리가 비어있습니다")
             return []
+        
+        # 쿼리 내용 로깅
+        for i, query in enumerate(queries[:5]):  # 처음 5개만 로깅
+            logger.info(f"   🔍 쿼리 {i+1}: {query}")
+        if len(queries) > 5:
+            logger.info(f"   ... 그 외 {len(queries) - 5}개 더")
+        
+        if not self.api_key:
+            logger.error("🚨 PERPLEXITY API 키가 없어 검색을 건너뜁니다")
+            logger.error("   ❌ 모든 검색이 실패 처리됩니다")
+            return [self._create_empty_result(query) for query in queries]
         
         # 최대 동시 검색 수 제한
         limited_queries = queries[:self.max_concurrent_searches]
+        if len(queries) > self.max_concurrent_searches:
+            logger.warning(f"⚠️  쿼리 수 제한: {len(queries)} → {len(limited_queries)}개")
         
         try:
+            logger.info(f"⚡ {len(limited_queries)}개 쿼리 병렬 실행 중...")
+            
             # 병렬 검색 실행
             tasks = [self._search_single_query(query) for query in limited_queries]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # 예외 처리 및 결과 정리
             processed_results = []
+            success_queries = []
+            failed_queries = []
+            
             for i, result in enumerate(results):
+                query = limited_queries[i]
                 if isinstance(result, Exception):
-                    logger.error(f"Search failed for query '{limited_queries[i]}': {str(result)}")
-                    processed_results.append(self._create_error_result(limited_queries[i], str(result)))
+                    logger.error(f"❌ 검색 실패 [{i+1}]: '{query[:50]}...' - {str(result)}")
+                    processed_results.append(self._create_error_result(query, str(result)))
+                    failed_queries.append(query)
                 else:
+                    if result.success:
+                        logger.info(f"✅ 검색 성공 [{i+1}]: '{query[:50]}...' ({len(result.content)}자)")
+                        success_queries.append(query)
+                    else:
+                        logger.warning(f"⚠️  검색 실패 [{i+1}]: '{query[:50]}...' - {result.error_message}")
+                        failed_queries.append(query)
                     processed_results.append(result)
             
-            success_count = sum(1 for r in processed_results if r.success)
-            failed_count = len(limited_queries) - success_count
+            success_count = len(success_queries)
+            failed_count = len(failed_queries)
+            
+            # 결과 요약
+            logger.info("=" * 60)
+            logger.info("📊 PERPLEXITY 검색 결과 요약")
+            logger.info("=" * 60)
+            logger.info(f"✅ 성공: {success_count}개")
+            logger.info(f"❌ 실패: {failed_count}개")
+            logger.info(f"📈 성공률: {(success_count/len(limited_queries)*100):.1f}%")
             
             if success_count > 0:
-                logger.info(f"🔍 검색 완료: {success_count}/{len(limited_queries)}개 성공")
-                # 성공한 검색 결과의 내용 길이 로깅
+                # 성공한 검색 결과의 내용 길이 통계
                 content_lengths = [len(r.content) for r in processed_results if r.success and r.content]
                 if content_lengths:
                     avg_length = sum(content_lengths) / len(content_lengths)
-                    logger.info(f"   평균 응답 길이: {avg_length:.0f}자")
-            else:
-                logger.warning(f"⚠️ 모든 검색 실패: {failed_count}개 실패")
-                logger.warning("   체크리스트 아이템에 description이 추가되지 않습니다")
+                    min_length = min(content_lengths)
+                    max_length = max(content_lengths)
+                    logger.info(f"📏 응답 길이: 평균 {avg_length:.0f}자 (최소 {min_length}, 최대 {max_length})")
+                
+                # 성공한 쿼리 몇 개 예시
+                for query in success_queries[:3]:
+                    logger.info(f"   ✅ '{query[:40]}...'")
+            
+            if failed_count > 0:
+                logger.warning(f"⚠️  실패한 쿼리 {min(3, failed_count)}개 예시:")
+                for query in failed_queries[:3]:
+                    logger.warning(f"   ❌ '{query[:40]}...'")
+            
+            logger.info("=" * 60)
             
             return processed_results
             
         except Exception as e:
-            logger.error(f"Parallel search failed: {str(e)}")
+            logger.error(f"💥 병렬 검색 전체 실패: {str(e)}")
+            logger.error(f"   🔄 모든 쿼리를 실패 처리합니다")
             return [self._create_error_result(query, str(e)) for query in limited_queries]
     
     async def _search_single_query(self, query: str) -> SearchResult:
         """단일 검색 쿼리 실행"""
+        start_time = asyncio.get_event_loop().time()
+        logger.debug(f"🔍 단일 검색 시작: '{query[:50]}...'")
+        
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -119,22 +175,42 @@ class PerplexityService:
             timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
             
             async with aiohttp.ClientSession(timeout=timeout) as session:
+                logger.debug(f"📡 API 요청 전송 중: {self.api_url}")
                 async with session.post(self.api_url, json=payload, headers=headers) as response:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    
                     if response.status == 200:
+                        logger.debug(f"✅ API 응답 수신 ({elapsed:.2f}초): '{query[:30]}...'")
                         data = await response.json()
-                        return self._parse_perplexity_response(query, data)
+                        result = self._parse_perplexity_response(query, data)
+                        
+                        if result.success:
+                            logger.debug(f"✅ 파싱 성공: {len(result.content)}자 응답")
+                        else:
+                            logger.warning(f"⚠️  파싱 실패: {result.error_message}")
+                        
+                        return result
                     else:
                         error_text = await response.text()
-                        logger.error(f"🚨 Perplexity API 오류 {response.status} (쿼리: '{query[:30]}...')")
-                        logger.error(f"   응답: {error_text[:100]}...")
-                        return self._create_error_result(query, f"API error {response.status}")
+                        logger.error(f"🚨 Perplexity API 오류 {response.status}")
+                        logger.error(f"   쿼리: '{query[:50]}...'")
+                        logger.error(f"   응답: {error_text[:200]}...")
+                        logger.error(f"   소요시간: {elapsed:.2f}초")
+                        
+                        return self._create_error_result(query, f"API error {response.status}: {error_text[:100]}")
                         
         except asyncio.TimeoutError:
-            logger.error(f"Search timeout for query: {query}")
-            return self._create_error_result(query, "Search timeout")
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.error(f"⏰ 검색 타임아웃 ({elapsed:.2f}초)")
+            logger.error(f"   쿼리: '{query[:50]}...'")
+            logger.error(f"   타임아웃 설정: {self.timeout_seconds}초")
+            return self._create_error_result(query, f"Search timeout after {elapsed:.2f}s")
         except Exception as e:
-            logger.error(f"Search failed for query '{query}': {str(e)}")
-            return self._create_error_result(query, str(e))
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.error(f"💥 검색 예외 발생 ({elapsed:.2f}초)")
+            logger.error(f"   쿼리: '{query[:50]}...'")
+            logger.error(f"   오류: {str(e)}")
+            return self._create_error_result(query, f"Exception: {str(e)}")
     
     def _parse_perplexity_response(self, query: str, data: Dict[str, Any]) -> SearchResult:
         """Perplexity API 응답 파싱 (JSON 구조화된 응답)"""
@@ -233,25 +309,52 @@ class PerplexityService:
     ) -> List[str]:
         """체크리스트 아이템 기반으로 검색 쿼리 생성 (범용적 방식)"""
         
+        logger.info("🎯 PERPLEXITY 검색 쿼리 생성 시작")
+        logger.info(f"   📋 체크리스트 아이템: {len(checklist_items)}개")
+        logger.info(f"   🎯 목표: {goal[:50]}...")
+        logger.info(f"   💬 답변: {len(answers)}개")
+        
         # 답변에서 핵심 컨텍스트 추출
         answer_context = self._extract_answer_context(answers)
+        logger.info(f"   🔍 추출된 컨텍스트: '{answer_context[:80]}...' ({len(answer_context)}자)")
         
         search_queries = []
         
         # 각 체크리스트 아이템을 기반으로 검색 쿼리 생성
-        for item in checklist_items[:10]:  # 최대 10개 아이템
+        processed_items = checklist_items[:10]  # 최대 10개 아이템
+        logger.info(f"   📝 처리할 아이템: {len(processed_items)}개")
+        
+        for i, item in enumerate(processed_items):
+            logger.debug(f"   🔍 아이템 {i+1} 처리: '{item[:50]}...'")
+            
             # 아이템에서 핵심 키워드 추출
             core_keywords = self._extract_core_keywords_from_item(item)
+            logger.debug(f"      키워드: {core_keywords}")
             
             if core_keywords:
                 # 여러 패턴의 검색 쿼리 생성
                 queries = self._generate_item_specific_queries(core_keywords, answer_context)
+                logger.debug(f"      생성된 쿼리: {queries}")
                 search_queries.extend(queries)
+            else:
+                logger.warning(f"      ⚠️  키워드 추출 실패: '{item[:30]}...'")
         
         # 중복 제거 및 길이 제한
         unique_queries = list(dict.fromkeys(search_queries))[:15]  # 최대 15개
         
-        logger.info(f"Generated {len(unique_queries)} search queries from {len(checklist_items)} checklist items")
+        logger.info("=" * 50)
+        logger.info("📝 생성된 검색 쿼리 목록")
+        logger.info("=" * 50)
+        for i, query in enumerate(unique_queries):
+            logger.info(f"   {i+1:2d}. {query}")
+        logger.info("=" * 50)
+        
+        logger.info(f"✅ 쿼리 생성 완료: {len(search_queries)} → {len(unique_queries)}개 (중복 제거)")
+        
+        if not unique_queries:
+            logger.error("🚨 생성된 검색 쿼리가 없습니다!")
+            logger.error("   체크리스트 아이템에서 키워드 추출이 실패했을 수 있습니다.")
+        
         return unique_queries
     
     def _extract_core_keywords_from_item(self, item: str) -> List[str]:

@@ -159,6 +159,11 @@ class ChecklistOrchestrator:
     async def _perform_parallel_search(self, request: QuestionAnswersRequest, checklist_items: List[str]):
         """병렬 검색 실행 (체크리스트 아이템 기반)"""
         
+        logger.info("🔍 ORCHESTRATOR 병렬 검색 시작")
+        logger.info(f"   📋 체크리스트 아이템: {len(checklist_items)}개")
+        logger.info(f"   🎯 목표: {request.goal}")
+        logger.info(f"   💬 답변: {len(request.answers)}개")
+        
         try:
             # 답변을 딕셔너리 형태로 변환
             answers_dict = [
@@ -170,6 +175,8 @@ class ChecklistOrchestrator:
                 for item in request.answers
             ]
             
+            logger.info("📝 검색 쿼리 생성 중...")
+            
             # 체크리스트 아이템 기반으로 검색 쿼리 생성
             search_queries = perplexity_service.generate_search_queries_from_checklist(
                 checklist_items,
@@ -177,16 +184,52 @@ class ChecklistOrchestrator:
                 answers_dict
             )
             
+            if not search_queries:
+                logger.error("🚨 검색 쿼리가 생성되지 않았습니다!")
+                return []
+            
+            logger.info(f"✅ 검색 쿼리 생성 완료: {len(search_queries)}개")
+            logger.info("🚀 Perplexity 병렬 검색 실행 중...")
+            
             # 병렬 검색 실행
             search_results = await perplexity_service.parallel_search(search_queries)
             
+            # 결과 분석
             success_count = sum(1 for r in search_results if r.success)
-            logger.info(f"체크리스트 기반 검색 완료: {success_count}/{len(search_queries)}개 성공")
+            failed_count = len(search_results) - success_count
+            
+            logger.info("=" * 60)
+            logger.info("📊 ORCHESTRATOR 검색 결과 분석")
+            logger.info("=" * 60)
+            logger.info(f"✅ 성공한 검색: {success_count}개")
+            logger.info(f"❌ 실패한 검색: {failed_count}개")
+            logger.info(f"📈 성공률: {(success_count/len(search_results)*100):.1f}%")
+            
+            if success_count > 0:
+                # 성공한 검색 결과의 콘텐츠 길이 분석
+                successful_results = [r for r in search_results if r.success and r.content]
+                if successful_results:
+                    content_lengths = [len(r.content) for r in successful_results]
+                    avg_length = sum(content_lengths) / len(content_lengths)
+                    logger.info(f"📏 평균 콘텐츠 길이: {avg_length:.0f}자")
+                    
+                    # 샘플 콘텐츠 미리보기
+                    sample_result = successful_results[0]
+                    logger.info(f"📄 샘플 응답 미리보기:")
+                    logger.info(f"   쿼리: {sample_result.query}")
+                    logger.info(f"   응답: {sample_result.content[:100]}...")
+            else:
+                logger.warning("⚠️  모든 검색이 실패했습니다. Details가 생성되지 않을 수 있습니다.")
+            
+            logger.info("=" * 60)
             
             return search_results
             
         except Exception as e:
-            logger.error(f"Parallel search failed: {str(e)}")
+            logger.error(f"💥 병렬 검색 전체 실패: {str(e)}")
+            logger.error(f"   오류 타입: {type(e).__name__}")
+            import traceback
+            logger.error(f"   스택 트레이스: {traceback.format_exc()}")
             return []
     
     def _create_checklist_prompt(
