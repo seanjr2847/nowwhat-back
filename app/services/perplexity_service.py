@@ -187,91 +187,153 @@ class PerplexityService:
             error_message=error_message
         )
     
-    def generate_search_queries(
-        self, 
-        goal: str, 
-        intent_title: str, 
+    def generate_search_queries_from_checklist(
+        self,
+        checklist_items: List[str],
+        goal: str,
         answers: List[Dict[str, Any]]
     ) -> List[str]:
-        """사용자 정보를 바탕으로 검색 쿼리 생성"""
+        """체크리스트 아이템 기반으로 검색 쿼리 생성 (범용적 방식)"""
         
-        # 답변에서 핵심 정보 추출
+        # 답변에서 핵심 컨텍스트 추출
         answer_context = self._extract_answer_context(answers)
         
-        # 의도별 검색 쿼리 템플릿
-        query_templates = {
-            "여행 계획": [
-                f"{goal} 최신 정보 2024",
-                f"{goal} 추천 일정 가이드",
-                f"{goal} 필수 준비물 체크리스트",
-                f"{goal} 예산 계획 팁",
-                f"{goal} 현지 문화 주의사항",
-                f"{goal} 교통편 예약 방법",
-                f"{goal} 숙박 추천 지역",
-                f"{goal} 맛집 현지 추천",
-                f"{goal} 관광지 입장료 정보",
-                f"{goal} 여행 보험 필수사항"
-            ],
-            "계획 세우기": [
-                f"{goal} 단계별 실행 방법",
-                f"{goal} 성공 사례 분석",
-                f"{goal} 필요 준비물 리스트",
-                f"{goal} 예상 소요 시간",
-                f"{goal} 예산 계획 가이드",
-                f"{goal} 주의사항 체크포인트",
-                f"{goal} 효율적인 순서",
-                f"{goal} 도구 추천",
-                f"{goal} 전문가 조언",
-                f"{goal} 실패 요인 분석"
-            ],
-            "정보 찾기": [
-                f"{goal} 최신 트렌드 2024",
-                f"{goal} 전문가 의견",
-                f"{goal} 비교 분석",
-                f"{goal} 가격 정보",
-                f"{goal} 리뷰 모음",
-                f"{goal} 추천 순위",
-                f"{goal} 장단점 비교",
-                f"{goal} 구매 가이드",
-                f"{goal} 사용법 설명",
-                f"{goal} 문제 해결 방법"
-            ]
-        }
+        search_queries = []
         
-        # 기본 쿼리 선택
-        base_queries = query_templates.get(intent_title, query_templates["계획 세우기"])
-        
-        # 답변 컨텍스트가 있으면 쿼리 개인화
-        if answer_context:
-            personalized_queries = []
-            for query in base_queries[:7]:  # 7개는 기본, 3개는 개인화
-                personalized_queries.append(f"{query} {answer_context}")
+        # 각 체크리스트 아이템을 기반으로 검색 쿼리 생성
+        for item in checklist_items[:10]:  # 최대 10개 아이템
+            # 아이템에서 핵심 키워드 추출
+            core_keywords = self._extract_core_keywords_from_item(item)
             
-            # 추가 개인화 쿼리 3개
-            personalized_queries.extend([
-                f"{goal} {answer_context} 맞춤 추천",
-                f"{goal} {answer_context} 경험담",
-                f"{goal} {answer_context} 주의사항"
-            ])
-            
-            return personalized_queries
+            if core_keywords:
+                # 여러 패턴의 검색 쿼리 생성
+                queries = self._generate_item_specific_queries(core_keywords, answer_context)
+                search_queries.extend(queries)
         
-        return base_queries
+        # 중복 제거 및 길이 제한
+        unique_queries = list(dict.fromkeys(search_queries))[:15]  # 최대 15개
+        
+        logger.info(f"Generated {len(unique_queries)} search queries from {len(checklist_items)} checklist items")
+        return unique_queries
+    
+    def _extract_core_keywords_from_item(self, item: str) -> List[str]:
+        """체크리스트 아이템에서 검색에 유용한 핵심 키워드 추출"""
+        import re
+        
+        # 불용어 제거
+        stopwords = [
+            '을', '를', '이', '가', '은', '는', '의', '에', '에서', '와', '과',
+            '하기', '하세요', '합니다', '위한', '위해', '통해', '대한', '함께'
+        ]
+        
+        # 명사형 키워드 우선 추출
+        noun_patterns = [
+            r'[가-힣]{2,}(?:앱|어플|플랫폼|서비스|사이트)',  # 서비스 관련
+            r'[가-힣]{2,}(?:교재|책|자료|가이드)',  # 학습 자료
+            r'[가-힣]{2,}(?:계획|일정|스케줄)',  # 계획 관련
+            r'[가-힣]{2,}(?:예산|비용|가격|돈)',  # 비용 관련
+            r'[가-힣]{2,}(?:방법|방식|팁|노하우)',  # 방법 관련
+        ]
+        
+        keywords = []
+        
+        # 특수 패턴 먼저 추출
+        for pattern in noun_patterns:
+            matches = re.findall(pattern, item)
+            keywords.extend(matches)
+        
+        # 일반 명사 추출 (2글자 이상)
+        words = re.findall(r'[가-힣a-zA-Z]{2,}', item)
+        for word in words:
+            if word not in stopwords and word not in keywords:
+                keywords.append(word)
+        
+        return keywords[:5]  # 상위 5개 키워드
+    
+    def _generate_item_specific_queries(self, keywords: List[str], context: str = "") -> List[str]:
+        """키워드를 기반으로 다양한 검색 쿼리 생성"""
+        if not keywords:
+            return []
+        
+        main_keyword = keywords[0]
+        additional_keywords = " ".join(keywords[1:3]) if len(keywords) > 1 else ""
+        
+        # 검색 패턴 템플릿 (범용적)
+        query_patterns = [
+            f"{main_keyword} 방법 추천",
+            f"{main_keyword} 가이드 팁", 
+            f"{main_keyword} {additional_keywords} 정보".strip(),
+        ]
+        
+        # 컨텍스트가 있으면 개인화
+        if context and len(context) > 5:
+            context_short = context[:30]  # 너무 길지 않게
+            query_patterns.append(f"{main_keyword} {context_short} 추천")
+        
+        return query_patterns[:2]  # 아이템당 최대 2개 쿼리
     
     def _extract_answer_context(self, answers: List[Dict[str, Any]]) -> str:
-        """답변에서 검색에 유용한 컨텍스트 추출"""
-        context_parts = []
+        """답변에서 검색에 유용한 컨텍스트 추출 (유연한 방식)"""
+        meaningful_answers = []
         
         for answer_item in answers:
             answer = answer_item.get("answer", "")
+            
             if isinstance(answer, list):
                 answer = " ".join(answer)
             
-            # 의미있는 답변만 추가 (짧은 코드성 답변 제외)
-            if len(answer) > 2 and not answer.isdigit():
-                context_parts.append(answer)
+            # 의미있는 답변 필터링 (일반적인 조건들)
+            if self._is_meaningful_answer(answer):
+                meaningful_answers.append(answer.strip())
         
-        return " ".join(context_parts[:3])  # 최대 3개 답변 컨텍스트
+        # 답변 길이와 구체성을 기준으로 정렬 (긴 답변이 더 구체적일 가능성)
+        meaningful_answers.sort(key=len, reverse=True)
+        
+        # 상위 답변들을 조합 (최대 3개)
+        selected_answers = meaningful_answers[:3]
+        final_context = " ".join(selected_answers)
+        
+        # 검색 쿼리에 적합한 길이로 조정
+        if len(final_context) > 120:
+            final_context = final_context[:117] + "..."
+        
+        return final_context
+    
+    def _is_meaningful_answer(self, answer: str) -> bool:
+        """답변이 의미있는 컨텍스트인지 판단"""
+        if not answer or len(answer.strip()) < 2:
+            return False
+        
+        answer = answer.strip()
+        
+        # 명백히 의미없는 답변들 제외
+        meaningless_patterns = [
+            # 단일 문자나 기호
+            r'^[ㄱ-ㅎㅏ-ㅣ]$',  # 단일 한글 자음/모음
+            r'^[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]$',  # 단일 특수문자
+            r'^\d+$',  # 숫자만
+            # 무의미한 반복
+            r'^(.)\1{2,}$',  # 같은 문자 3번 이상 반복
+            # 임시/빈 답변 패턴
+            r'^(없음|없다|모름|잘모름|해당없음|패스)$',
+            r'^(.|_|-|\s)*$',  # 특수문자나 공백만
+        ]
+        
+        import re
+        for pattern in meaningless_patterns:
+            if re.match(pattern, answer, re.IGNORECASE):
+                return False
+        
+        # 최소 길이 체크 (너무 짧은 답변 제외)
+        if len(answer) < 3:
+            return False
+        
+        # 의미있는 단어가 포함되어 있는지 체크
+        meaningful_chars = re.findall(r'[가-힣a-zA-Z0-9]', answer)
+        if len(meaningful_chars) < 2:
+            return False
+        
+        return True
     
     async def enhance_checklist_with_search(
         self, 

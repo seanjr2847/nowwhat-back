@@ -111,17 +111,16 @@ class ChecklistOrchestrator:
         """AI 생성 + 검색 보강을 통한 체크리스트 생성 (description 포함)"""
         
         try:
-            # 병렬 실행: AI 체크리스트 생성 + 검색 쿼리 실행
-            ai_task = self._generate_ai_checklist(request)
-            search_task = self._perform_parallel_search(request)
+            # 1단계: AI 체크리스트 생성
+            ai_checklist = await self._generate_ai_checklist(request)
             
-            # 두 작업을 병렬로 실행
-            ai_checklist, search_results = await asyncio.gather(ai_task, search_task)
+            # 2단계: 생성된 체크리스트 기반으로 검색 실행
+            search_results = await self._perform_parallel_search(request, ai_checklist)
             
-            # 체크리스트 아이템별로 관련 검색 결과를 description으로 매칭
+            # 3단계: 체크리스트 아이템별로 관련 검색 결과를 description으로 매칭
             enhanced_items = await self._match_search_results_to_items(ai_checklist, search_results)
             
-            # 체크리스트 품질 검증 및 조정
+            # 4단계: 체크리스트 품질 검증 및 조정
             final_items = self._validate_and_adjust_enhanced_items(enhanced_items)
             
             return final_items
@@ -156,8 +155,8 @@ class ChecklistOrchestrator:
             logger.error(f"AI checklist generation failed: {str(e)}")
             return self._get_default_checklist_template(request.selectedIntent)
     
-    async def _perform_parallel_search(self, request: QuestionAnswersRequest):
-        """병렬 검색 실행"""
+    async def _perform_parallel_search(self, request: QuestionAnswersRequest, checklist_items: List[str]):
+        """병렬 검색 실행 (체크리스트 아이템 기반)"""
         
         try:
             # 답변을 딕셔너리 형태로 변환
@@ -170,10 +169,10 @@ class ChecklistOrchestrator:
                 for item in request.answers
             ]
             
-            # 검색 쿼리 생성
-            search_queries = perplexity_service.generate_search_queries(
+            # 체크리스트 아이템 기반으로 검색 쿼리 생성
+            search_queries = perplexity_service.generate_search_queries_from_checklist(
+                checklist_items,
                 request.goal,
-                request.selectedIntent,
                 answers_dict
             )
             
@@ -181,7 +180,7 @@ class ChecklistOrchestrator:
             search_results = await perplexity_service.parallel_search(search_queries)
             
             success_count = sum(1 for r in search_results if r.success)
-            logger.info(f"Parallel search completed: {success_count}/{len(search_queries)} successful")
+            logger.info(f"체크리스트 기반 검색 완료: {success_count}/{len(search_queries)}개 성공")
             
             return search_results
             
@@ -207,18 +206,31 @@ class ChecklistOrchestrator:
 위 정보를 바탕으로 사용자가 목표를 달성하기 위한 체계적인 체크리스트를 생성하세요.
 
 체크리스트 생성 규칙:
-1. 시간순으로 정렬된 실행 가능한 항목들
-2. 구체적이고 측정 가능한 액션 아이템
-3. {self.min_checklist_items}개 이상 {self.max_checklist_items}개 이하
-4. 각 항목은 한 문장으로 명확하게 표현
-5. 우선순위를 고려한 순서 배열
+1. **구체적 키워드 포함**: 각 항목에 검색 가능한 구체적 키워드를 포함하세요
+   - 나쁜 예: "준비하기" → 좋은 예: "교재 구매하고 학습 계획 세우기"
+   - 나쁜 예: "확인하기" → 좋은 예: "온라인 강의 플랫폼 비교 및 선택하기"
+
+2. **실행 가능한 액션**: 사용자가 즉시 행동할 수 있는 구체적 단계
+   - 구매, 예약, 신청, 다운로드, 연락, 방문, 등록 등 명확한 동사 사용
+   - 브랜드명, 서비스명, 가격, 기간 등 구체적 정보 포함
+
+3. **검색 친화적 표현**: 온라인에서 찾을 수 있는 정보와 연결되는 표현
+   - "무료 언어 학습 앱 추천" → "듀오링고 앱 다운로드 및 학습 목표 설정"
+   - "예산 계획" → "언어 학습 예산 월 5-10만원 범위에서 계획 수립"
+
+4. **시간적 순서**: {self.min_checklist_items}개 이상 {self.max_checklist_items}개 이하로 시간 순서대로 배열
+
+5. **답변 반영**: 사용자의 구체적 답변(예산, 기간, 방식, 파트너 등)을 각 항목에 자연스럽게 반영
 
 응답 형식:
 - 각 항목을 새 줄로 구분
 - 번호나 불릿 포인트 없이 순수 텍스트만
-- 예: "여권 유효기간 확인하기"
+- 예시:
+  "학습할 언어와 목표 수준을 구체적으로 결정하고 3개월 학습 계획 수립하기"
+  "파트너와 함께 사용할 언어 학습 앱 또는 온라인 강의 플랫폼 선택하기"
+  "월 예산 범위 내에서 교재 구매 및 필요한 학습 도구 준비하기"
 
-중요: 사용자의 구체적인 답변 내용을 반영하여 개인화된 체크리스트를 만드세요."""
+중요: 실제 온라인에서 검색했을 때 관련 정보, 팁, 추천사항을 쉽게 찾을 수 있도록 검색 키워드가 풍부한 체크리스트를 만드세요."""
     
     async def _call_gemini_for_checklist(self, prompt: str) -> List[str]:
         """Gemini API 호출하여 체크리스트 생성"""
