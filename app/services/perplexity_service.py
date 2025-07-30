@@ -22,7 +22,7 @@ class PerplexityService:
     def __init__(self):
         self.api_url = "https://api.perplexity.ai/chat/completions"
         self.api_key = getattr(settings, 'PERPLEXITY_API_KEY', '')
-        self.max_concurrent_searches = getattr(settings, 'MAX_CONCURRENT_SEARCHES', 10)
+        self.max_concurrent_searches = getattr(settings, 'MAX_CONCURRENT_SEARCHES', 5)  # 10 -> 5로 줄임
         self.timeout_seconds = getattr(settings, 'SEARCH_TIMEOUT_SECONDS', 15)
         
         # 상세한 초기화 로깅
@@ -164,11 +164,11 @@ class PerplexityService:
                     },
                     {
                         "role": "user", 
-                        "content": query
+                        "content": f"{query} (한국어로 답변해주세요. JSON 형식으로만 응답하세요.)"
                     }
                 ],
-                "max_tokens": 300,
-                "temperature": 0.2,
+                "max_tokens": 1000,  # 500 -> 1000으로 늘림
+                "temperature": 0.1,  # 더 일관성 있게
                 "stream": False
             }
             
@@ -242,6 +242,20 @@ class PerplexityService:
                     end = content.rfind("}") + 1
                     if start != -1 and end > start:
                         json_content = content[start:end]
+                
+                # 잘린 JSON 복구 시도
+                if json_content.count('"') % 2 != 0:
+                    # 홀수개의 따옴표가 있으면 문자열이 잘림
+                    json_content += '"'
+                
+                # 열린 배열/객체 닫기
+                open_brackets = json_content.count('[') - json_content.count(']')
+                open_braces = json_content.count('{') - json_content.count('}')
+                
+                if open_brackets > 0:
+                    json_content += ']' * open_brackets
+                if open_braces > 0:
+                    json_content += '}' * open_braces
                 
                 structured_data = json.loads(json_content)
                 logger.info(f"Successfully parsed JSON response for query: {query[:50]}...")
