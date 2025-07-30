@@ -155,7 +155,7 @@ async def get_checklist(
                     "order": item.order,
                     "isCompleted": item.is_completed,
                     "completedAt": item.completed_at.isoformat() if item.completed_at else None,
-                    "details": self._get_item_details(db, item.id)
+                    "details": _get_item_details(db, item.id)
                 }
                 for item in (cl.items if cl.items else [])
             ],
@@ -221,7 +221,7 @@ async def create_checklist(
                     "order": item.order,
                     "isCompleted": item.is_completed,
                     "completedAt": item.completed_at.isoformat() if item.completed_at else None,
-                    "details": self._get_item_details(db, item.id)
+                    "details": _get_item_details(db, item.id)
                 }
                 for item in new_checklist.items
             ],
