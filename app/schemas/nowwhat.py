@@ -137,7 +137,7 @@ class ChecklistResponse(BaseModel):
     completedItems: int
     progressPercentage: float
     isCompleted: bool = False
-    items: List[ChecklistItemResponse]
+    items: List[Dict[str, Any]]  # Dict 형태로 변경
     createdAt: str
     updatedAt: Optional[str] = None
     completedAt: Optional[str] = None
