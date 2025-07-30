@@ -55,6 +55,8 @@ async def get_user_checklists(
 ):
     """현재 사용자의 체크리스트 목록 조회"""
     try:
+        logger.info(f"Getting checklists for user: {current_user.id}")
+        
         checklists = checklist.get_user_checklists(
             db=db,
             user_id=current_user.id,
@@ -63,28 +65,27 @@ async def get_user_checklists(
             limit=limit
         )
         
+        logger.info(f"Found {len(checklists)} checklists for user {current_user.id}")
+        
         result = []
         for cl in checklists:
-            # 각 체크리스트의 아이템들도 함께 조회
-            cl_with_items = checklist.get_with_items(db=db, checklist_id=cl.id)
-            
-            # 진행률 계산
-            total_items = len(cl_with_items.items) if cl_with_items and cl_with_items.items else 0
-            completed_items = len([item for item in (cl_with_items.items if cl_with_items and cl_with_items.items else []) if item.is_completed])
-            progress_percentage = (completed_items / total_items * 100) if total_items > 0 else 0.0
-            is_completed = total_items > 0 and completed_items == total_items
-            
-            result.append(ChecklistResponse(
-                id=cl.id,
-                title=cl.title,
-                category=cl.category,
-                description=cl.description,
-                totalItems=total_items,
-                completedItems=completed_items,
-                progressPercentage=round(progress_percentage, 1),
-                isCompleted=is_completed,
-                items=[
-                    {
+            try:
+                # 각 체크리스트의 아이템들도 함께 조회
+                cl_with_items = checklist.get_with_items(db=db, checklist_id=cl.id)
+                
+                # items가 None인 경우 빈 리스트로 처리
+                items = cl_with_items.items if cl_with_items and hasattr(cl_with_items, 'items') and cl_with_items.items is not None else []
+                
+                # 진행률 계산
+                total_items = len(items)
+                completed_items = len([item for item in items if item.is_completed])
+                progress_percentage = (completed_items / total_items * 100) if total_items > 0 else 0.0
+                is_completed = total_items > 0 and completed_items == total_items
+                
+                # ChecklistItemResponse 형식으로 변환
+                item_responses = []
+                for item in items:
+                    item_dict = {
                         "id": item.id,
                         "title": item.text,  # text 필드 사용
                         "description": "",   # 기본값 (호환성)
@@ -93,21 +94,38 @@ async def get_user_checklists(
                         "completedAt": item.completed_at.isoformat() if item.completed_at else None,
                         "details": _get_item_details(db, item.id)
                     }
-                    for item in (cl_with_items.items if cl_with_items and cl_with_items.items else [])
-                ],
-                createdAt=cl.created_at.isoformat(),
-                updatedAt=cl.updated_at.isoformat() if cl.updated_at else None,
-                completedAt=None  # 기존 모델에 없음
-            ))
+                    item_responses.append(ChecklistItemResponse(**item_dict))
+                
+                result.append(ChecklistResponse(
+                    id=cl.id,
+                    title=cl.title,
+                    category=cl.category,
+                    description=cl.description,
+                    totalItems=total_items,
+                    completedItems=completed_items,
+                    progressPercentage=round(progress_percentage, 1),
+                    isCompleted=is_completed,
+                    items=item_responses,
+                    createdAt=cl.created_at.isoformat(),
+                    updatedAt=cl.updated_at.isoformat() if cl.updated_at else None,
+                    completedAt=None  # 기존 모델에 없음
+                ))
+                
+            except Exception as item_error:
+                logger.error(f"Error processing checklist {cl.id}: {item_error}", exc_info=True)
+                # 에러가 발생한 체크리스트는 건너뛰고 계속 진행
+                continue
         
+        logger.info(f"Successfully returning {len(result)} checklists")
         return result
         
     except Exception as e:
-        logger.error(f"Get user checklists error: {e}")
+        logger.error(f"Get user checklists error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="체크리스트 목록 조회 중 오류가 발생했습니다."
+            detail=f"체크리스트 목록 조회 중 오류가 발생했습니다: {str(e)}"
         )
+
 
 @router.get("/{checklist_id}", response_model=ChecklistResponse)
 async def get_checklist(
