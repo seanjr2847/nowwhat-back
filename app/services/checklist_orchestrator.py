@@ -107,8 +107,8 @@ class ChecklistOrchestrator:
     async def _generate_enhanced_checklist(
         self, 
         request: QuestionAnswersRequest
-    ) -> List[str]:
-        """AI 생성 + 검색 보강을 통한 체크리스트 생성"""
+    ) -> List[Dict[str, str]]:
+        """AI 생성 + 검색 보강을 통한 체크리스트 생성 (description 포함)"""
         
         try:
             # 병렬 실행: AI 체크리스트 생성 + 검색 쿼리 실행
@@ -118,20 +118,19 @@ class ChecklistOrchestrator:
             # 두 작업을 병렬로 실행
             ai_checklist, search_results = await asyncio.gather(ai_task, search_task)
             
-            # 검색 결과를 활용하여 체크리스트 보강
-            enhanced_checklist = await perplexity_service.enhance_checklist_with_search(
-                ai_checklist, search_results
-            )
+            # 체크리스트 아이템별로 관련 검색 결과를 description으로 매칭
+            enhanced_items = await self._match_search_results_to_items(ai_checklist, search_results)
             
             # 체크리스트 품질 검증 및 조정
-            final_checklist = self._validate_and_adjust_checklist(enhanced_checklist)
+            final_items = self._validate_and_adjust_enhanced_items(enhanced_items)
             
-            return final_checklist
+            return final_items
             
         except Exception as e:
             logger.error(f"Enhanced checklist generation failed: {str(e)}")
             # 실패 시 기본 체크리스트 반환
-            return await self._get_fallback_checklist(request)
+            fallback_checklist = await self._get_fallback_checklist(request)
+            return [{"text": item, "description": ""} for item in fallback_checklist]
     
     async def _generate_ai_checklist(self, request: QuestionAnswersRequest) -> List[str]:
         """Gemini AI를 통한 기본 체크리스트 생성"""
@@ -374,6 +373,228 @@ class ChecklistOrchestrator:
         
         return templates.get(intent_title, templates["계획 세우기"])
     
+    async def _match_search_results_to_items(
+        self, 
+        checklist_items: List[str], 
+        search_results: List
+    ) -> List[Dict[str, str]]:
+        """체크리스트 아이템별로 관련 검색 결과를 description으로 매칭"""
+        
+        enhanced_items = []
+        
+        # 성공적인 검색 결과만 필터링
+        successful_results = [r for r in search_results if hasattr(r, 'success') and r.success and r.content]
+        
+        if not successful_results:
+            logger.warning("No successful search results to match with checklist items")
+            return [{"text": item, "description": ""} for item in checklist_items]
+        
+        # 각 체크리스트 아이템에 대해 가장 관련성 높은 검색 결과 찾기
+        for item in checklist_items:
+            best_description = self._find_best_matching_description(item, successful_results)
+            enhanced_items.append({
+                "text": item,
+                "description": best_description
+            })
+        
+        success_count = sum(1 for item in enhanced_items if item["description"])
+        logger.info(f"Matched descriptions for {success_count}/{len(checklist_items)} checklist items")
+        
+        return enhanced_items
+    
+    def _find_best_matching_description(self, checklist_item: str, search_results: List) -> str:
+        """체크리스트 아이템에 가장 적합한 검색 결과 찾기"""
+        
+        item_keywords = self._extract_keywords_from_item(checklist_item)
+        best_match = ""
+        best_score = 0
+        
+        for result in search_results:
+            if not hasattr(result, 'content') or not result.content:
+                continue
+            
+            # 검색 결과에서 실용적인 팁 추출
+            tips = self._extract_practical_tips_from_content(result.content)
+            
+            for tip in tips:
+                score = self._calculate_relevance_score(item_keywords, tip)
+                if score > best_score and len(tip) > 20:
+                    best_score = score
+                    best_match = tip
+        
+        # 적절한 길이로 자르기 (API 응답에서 너무 길지 않게)
+        if best_match and len(best_match) > 150:
+            best_match = best_match[:147] + "..."
+        
+        return best_match
+    
+    def _extract_keywords_from_item(self, item: str) -> List[str]:
+        """체크리스트 아이템에서 핵심 키워드 추출 (개선된 버전)"""
+        import re
+        
+        # 확장된 불용어 리스트
+        stopwords = [
+            '을', '를', '이', '가', '은', '는', '의', '에', '에서', '와', '과', 
+            '하기', '하세요', '합니다', '있는', '있다', '되는', '되다', '위한', '위해',
+            '통해', '대한', '대해', '같은', '같이', '함께', '모든', '각각', '그리고'
+        ]
+        
+        # 중요한 키워드를 우선적으로 추출
+        important_patterns = [
+            r'학습|공부|연습|훈련',
+            r'준비|계획|예약|신청',
+            r'구매|선택|결정|확인',
+            r'언어|영어|중국어|일본어|스페인어|프랑스어',
+            r'교재|책|앱|강의|수업',
+            r'파트너|친구|그룹|팀',
+            r'예산|비용|돈|가격'
+        ]
+        
+        keywords = []
+        
+        # 중요 패턴 먼저 추출
+        for pattern in important_patterns:
+            matches = re.findall(pattern, item)
+            keywords.extend(matches)
+        
+        # 일반 단어 추출 (한글, 영어, 숫자)
+        words = re.findall(r'[가-힣a-zA-Z0-9]+', item)
+        for word in words:
+            if word not in stopwords and len(word) > 1 and word not in keywords:
+                keywords.append(word)
+        
+        # 중복 제거 및 상위 키워드 반환
+        unique_keywords = list(dict.fromkeys(keywords))  # 순서 유지하며 중복 제거
+        return unique_keywords[:7]  # 상위 7개 키워드
+    
+    def _extract_practical_tips_from_content(self, content: str) -> List[str]:
+        """검색 결과에서 실용적인 팁 추출 (개선된 버전)"""
+        # 다양한 문장 구분자로 분리
+        import re
+        sentences = re.split(r'[.!?]\s+|[\n\r]+', content.replace('\\n', '\n'))
+        tips = []
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) < 15 or len(sentence) > 180:
+                continue
+            
+            # 실용적인 팁의 특징을 가진 문장 찾기 (확장된 패턴)
+            practical_patterns = [
+                r'(추천|권장|제안).*\w+',
+                r'(필요|준비|확인|체크).*\w+',
+                r'(예약|구매|신청|등록).*\w+',
+                r'(방법|방식|팁|노하우).*\w+',
+                r'(주의|조심|유의).*\w+',
+                r'(중요|필수|핵심).*\w+',
+                r'(선택|결정|고려).*\w+',
+                r'(학습|공부|연습).*\w+',
+                r'(무료|할인|저렴).*\w+',
+                r'(\d+원|\d+달러|예산|비용).*\w+'
+            ]
+            
+            # 패턴 매칭 점수 계산
+            score = 0
+            for pattern in practical_patterns:
+                if re.search(pattern, sentence):
+                    score += 1
+            
+            # 추가 점수 - URL 링크나 구체적 정보 포함
+            if re.search(r'https?://|www\.|\.com|\.kr', sentence):
+                score += 2
+            if re.search(r'\d+', sentence):  # 숫자 포함
+                score += 1
+            
+            # 점수가 높은 문장만 선택
+            if score >= 1:
+                # 불필요한 문구 정리
+                cleaned_sentence = self._clean_tip_sentence(sentence)
+                if cleaned_sentence:
+                    tips.append((cleaned_sentence, score))
+        
+        # 점수 순으로 정렬 후 상위 3개 반환
+        tips.sort(key=lambda x: x[1], reverse=True)
+        return [tip[0] for tip in tips[:4]]  # 최대 4개 팁
+    
+    def _clean_tip_sentence(self, sentence: str) -> str:
+        """팁 문장 정리"""
+        import re
+        
+        # 불필요한 문구 제거
+        sentence = re.sub(r'^(또한|그리고|따라서|하지만|그러나)\s*', '', sentence)
+        sentence = re.sub(r'\s*(입니다|습니다|해요|해야|됩니다)\.?$', '', sentence)
+        
+        # 너무 짧거나 의미없는 문장 필터링
+        if len(sentence) < 10:
+            return ""
+        
+        # 첫 글자 대문자 처리 (영어인 경우)
+        if sentence and sentence[0].islower():
+            sentence = sentence[0].upper() + sentence[1:]
+        
+        return sentence.strip()
+    
+    def _calculate_relevance_score(self, item_keywords: List[str], tip: str) -> float:
+        """아이템 키워드와 팁의 관련성 점수 계산 (개선된 가중치 적용)"""
+        if not item_keywords:
+            return 0.0
+        
+        score = 0.0
+        tip_lower = tip.lower()
+        
+        for i, keyword in enumerate(item_keywords):
+            keyword_lower = keyword.lower()
+            
+            if keyword_lower in tip_lower:
+                # 키워드 위치에 따른 가중치 (앞쪽 키워드가 더 중요)
+                position_weight = 1.0 - (i * 0.1)
+                
+                # 키워드 길이에 따른 가중치 (긴 키워드가 더 중요)
+                length_weight = min(len(keyword) / 5.0, 2.0)
+                
+                # 키워드가 단어 경계에서 매칭되는지 확인 (부분 매칭 vs 완전 매칭)
+                import re
+                if re.search(r'\b' + re.escape(keyword_lower) + r'\b', tip_lower):
+                    boundary_weight = 1.5  # 완전 매칭에 더 높은 점수
+                else:
+                    boundary_weight = 1.0  # 부분 매칭
+                
+                keyword_score = position_weight * length_weight * boundary_weight
+                score += keyword_score
+        
+        # 정규화 (최대 점수로 나누기)
+        max_possible_score = sum(1.0 * min(len(kw) / 5.0, 2.0) * 1.5 for kw in item_keywords)
+        normalized_score = score / max_possible_score if max_possible_score > 0 else 0.0
+        
+        return min(normalized_score, 1.0)  # 최대 1.0으로 제한
+    
+    def _validate_and_adjust_enhanced_items(self, items: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """향상된 체크리스트 아이템들의 품질 검증 및 조정"""
+        
+        # 중복 제거
+        unique_items = []
+        seen_texts = set()
+        
+        for item in items:
+            text = item["text"].strip()
+            if text and text not in seen_texts:
+                unique_items.append(item)
+                seen_texts.add(text)
+        
+        # 길이 조정
+        if len(unique_items) < self.min_checklist_items:
+            needed_count = self.min_checklist_items - len(unique_items)
+            default_items = self._get_default_items_for_padding()
+            for i in range(min(needed_count, len(default_items))):
+                unique_items.append({
+                    "text": default_items[i],
+                    "description": ""
+                })
+        elif len(unique_items) > self.max_checklist_items:
+            unique_items = unique_items[:self.max_checklist_items]
+        
+        return unique_items
+    
     async def _get_fallback_checklist(self, request: QuestionAnswersRequest) -> List[str]:
         """모든 생성 방법 실패 시 사용할 폴백 체크리스트"""
         
@@ -383,7 +604,7 @@ class ChecklistOrchestrator:
     async def _save_final_checklist(
         self,
         request: QuestionAnswersRequest,
-        checklist_items: List[str],
+        checklist_items: List[Dict[str, str]],
         user: User,
         db: Session
     ) -> str:
@@ -410,11 +631,21 @@ class ChecklistOrchestrator:
             db.add(checklist)
             db.flush()  # ID를 얻기 위해 flush
             
-            # ChecklistItem 레코드들 생성
-            for order, item_text in enumerate(checklist_items):
+            # ChecklistItem 레코드들 생성 (description 포함)
+            for order, item_data in enumerate(checklist_items):
+                # item_data가 딕셔너리인 경우와 문자열인 경우 모두 처리
+                if isinstance(item_data, dict):
+                    text = item_data.get("text", "")
+                    # description은 아직 데이터베이스 모델에 없으므로 로깅만
+                    description = item_data.get("description", "")
+                    if description:
+                        logger.info(f"Item '{text[:30]}...' has description: {description[:50]}...")
+                else:
+                    text = str(item_data)
+                
                 item = ChecklistItem(
                     checklist_id=checklist.id,
-                    text=item_text,
+                    text=text,
                     is_completed=False,
                     order=order
                 )

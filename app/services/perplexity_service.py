@@ -25,13 +25,21 @@ class PerplexityService:
         self.max_concurrent_searches = getattr(settings, 'MAX_CONCURRENT_SEARCHES', 10)
         self.timeout_seconds = getattr(settings, 'SEARCH_TIMEOUT_SECONDS', 15)
         
+        # API 키 상태 로깅
         if not self.api_key:
-            logger.warning("PERPLEXITY_API_KEY not found in settings - search functionality will be disabled")
+            logger.error("🚨 PERPLEXITY_API_KEY not found in environment variables!")
+            logger.error("   체크리스트 아이템에 description이 추가되지 않습니다.")
+            logger.error("   환경변수 PERPLEXITY_API_KEY를 설정해주세요.")
+        else:
+            logger.info(f"✅ Perplexity API 키 확인됨 (길이: {len(self.api_key)} 문자)")
+            logger.info(f"   최대 동시 검색: {self.max_concurrent_searches}개")
+            logger.info(f"   검색 타임아웃: {self.timeout_seconds}초")
     
     async def parallel_search(self, queries: List[str]) -> List[SearchResult]:
         """10개의 검색 쿼리를 병렬로 실행"""
         if not self.api_key:
-            logger.warning("Perplexity API key not available, returning empty results")
+            logger.error("🚨 Perplexity API 키가 없어 검색을 건너뜁니다")
+            logger.error(f"   {len(queries)}개 쿼리: {', '.join(queries[:3])}{'...' if len(queries) > 3 else ''}")
             return [self._create_empty_result(query) for query in queries]
         
         if not queries:
@@ -55,7 +63,18 @@ class PerplexityService:
                     processed_results.append(result)
             
             success_count = sum(1 for r in processed_results if r.success)
-            logger.info(f"Completed parallel search: {success_count}/{len(limited_queries)} successful")
+            failed_count = len(limited_queries) - success_count
+            
+            if success_count > 0:
+                logger.info(f"🔍 검색 완료: {success_count}/{len(limited_queries)}개 성공")
+                # 성공한 검색 결과의 내용 길이 로깅
+                content_lengths = [len(r.content) for r in processed_results if r.success and r.content]
+                if content_lengths:
+                    avg_length = sum(content_lengths) / len(content_lengths)
+                    logger.info(f"   평균 응답 길이: {avg_length:.0f}자")
+            else:
+                logger.warning(f"⚠️ 모든 검색 실패: {failed_count}개 실패")
+                logger.warning("   체크리스트 아이템에 description이 추가되지 않습니다")
             
             return processed_results
             
@@ -97,7 +116,8 @@ class PerplexityService:
                         return self._parse_perplexity_response(query, data)
                     else:
                         error_text = await response.text()
-                        logger.error(f"Perplexity API error {response.status}: {error_text}")
+                        logger.error(f"🚨 Perplexity API 오류 {response.status} (쿼리: '{query[:30]}...')")
+                        logger.error(f"   응답: {error_text[:100]}...")
                         return self._create_error_result(query, f"API error {response.status}")
                         
         except asyncio.TimeoutError:
