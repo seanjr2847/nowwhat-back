@@ -186,6 +186,52 @@ def validate_session_for_questions(
     
     return True, db_session, None
 
+def save_user_answers_to_session(
+    db: Session,
+    goal: str,
+    selected_intent: str,
+    answers: List[Dict[str, Any]],
+    user_id: str
+) -> Optional[str]:
+    """사용자 답변을 IntentSession에 저장 (기존 구조 활용)"""
+    
+    # 해당 goal과 user에 맞는 최근 세션 찾기
+    # 실제로는 프론트엔드에서 sessionId를 보내줘야 하지만, 
+    # 임시로 goal 기반으로 찾기
+    db_session = db.query(IntentSession).filter(
+        IntentSession.goal == goal
+    ).order_by(IntentSession.created_at.desc()).first()
+    
+    if not db_session:
+        return None
+    
+    # 답변 데이터 구성
+    answers_data = {
+        "type": "user_answers",
+        "selected_intent": selected_intent,
+        "answers": answers,
+        "user_id": user_id,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    # 기존 generated_intents에 답변 정보 추가
+    if not db_session.generated_intents:
+        db_session.generated_intents = []
+    
+    # 기존 답변이 있으면 제거하고 새로 추가
+    db_session.generated_intents = [
+        item for item in db_session.generated_intents 
+        if not (isinstance(item, dict) and item.get("type") == "user_answers")
+    ]
+    
+    db_session.generated_intents.append(answers_data)
+    db_session.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(db_session)
+    
+    return db_session.session_id
+
 def get_intent_title_from_session(
     db_session: IntentSession,
     intent_id: str

@@ -136,4 +136,6 @@ class IntentSession(Base):
     user_country = Column(String, nullable=True)
     generated_intents = Column(JSON, nullable=True)  # 생성된 의도 옵션들
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now()) 
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+ 

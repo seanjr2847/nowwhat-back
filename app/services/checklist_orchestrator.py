@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from app.schemas.questions import QuestionAnswersRequest, QuestionAnswersResponse, AnswerItemSchema
 from app.services.gemini_service import gemini_service
 from app.services.perplexity_service import perplexity_service
-from app.crud.session import validate_session_basic
-from app.models.database import Checklist, ChecklistItem, Answer, User
+from app.crud.session import validate_session_basic, save_user_answers_to_session
+from app.models.database import Checklist, ChecklistItem, User
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -70,32 +70,37 @@ class ChecklistOrchestrator:
         user: User, 
         db: Session
     ) -> None:
-        """사용자 답변 데이터베이스 저장"""
+        """사용자 답변을 IntentSession에 저장 (기존 구조 활용)"""
         
         try:
-            # 답변들을 Answer 모델로 변환하여 저장
+            # 답변 데이터를 딕셔너리로 변환
+            answers_dict = []
             for answer_item in request.answers:
-                # answer가 리스트인 경우 문자열로 변환
                 answer_text = answer_item.answer
                 if isinstance(answer_text, list):
                     answer_text = ", ".join(answer_text)
                 
-                # 임시로 question_id 생성 (실제로는 questions 테이블과 연동 필요)
-                temp_question_id = f"q_{answer_item.questionIndex}_{user.id}"
-                
-                answer_record = Answer(
-                    question_id=temp_question_id,
-                    user_id=user.id,
-                    answer=answer_text
-                )
-                
-                db.add(answer_record)
+                answers_dict.append({
+                    "questionIndex": answer_item.questionIndex,
+                    "questionText": answer_item.questionText,
+                    "answer": answer_text
+                })
             
-            db.commit()
-            logger.info(f"Saved {len(request.answers)} answers for user {user.id}")
+            # 기존 IntentSession 구조를 활용하여 답변 저장
+            session_id = save_user_answers_to_session(
+                db=db,
+                goal=request.goal,
+                selected_intent=request.selectedIntent,
+                answers=answers_dict,
+                user_id=user.id
+            )
+            
+            if session_id:
+                logger.info(f"Saved {len(request.answers)} answers to IntentSession {session_id} for user {user.id}")
+            else:
+                logger.warning(f"No matching session found for goal: {request.goal}")
             
         except Exception as e:
-            db.rollback()
             logger.error(f"Failed to save user answers: {str(e)}")
             raise ChecklistGenerationError("답변 저장에 실패했습니다")
     
@@ -388,11 +393,14 @@ class ChecklistOrchestrator:
             # 체크리스트 ID 생성
             checklist_id = self._generate_checklist_id()
             
+            # 답변 정보를 description에 포함 (임시 해결책)
+            answer_summary = self._format_answers_for_description(request.answers)
+            
             # Checklist 레코드 생성
             checklist = Checklist(
                 id=checklist_id,
                 title=f"{request.selectedIntent}: {request.goal}",
-                description=f"'{request.goal}' 목표 달성을 위한 맞춤형 체크리스트",
+                description=f"'{request.goal}' 목표 달성을 위한 맞춤형 체크리스트\n\n답변 요약:\n{answer_summary}",
                 category=request.selectedIntent,
                 progress=0.0,
                 is_public=True,
@@ -429,6 +437,22 @@ class ChecklistOrchestrator:
         random_part = str(uuid.uuid4())[:8]
         
         return f"cl_{timestamp}_{random_part}"
+    
+    def _format_answers_for_description(self, answers: List[AnswerItemSchema]) -> str:
+        """답변들을 설명 텍스트로 포맷팅"""
+        
+        formatted_parts = []
+        
+        for answer_item in answers:
+            question = answer_item.questionText
+            answer = answer_item.answer
+            
+            if isinstance(answer, list):
+                answer = ", ".join(answer)
+            
+            formatted_parts.append(f"• {question}: {answer}")
+        
+        return "\n".join(formatted_parts)
 
 # 서비스 인스턴스
 checklist_orchestrator = ChecklistOrchestrator()

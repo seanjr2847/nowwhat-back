@@ -17,10 +17,7 @@ The POST `/api/v1/questions/answer` endpoint processes user answers and generate
 ```json
 {
   "goal": "string (required, 1-500 chars)",
-  "selectedIntent": {
-    "index": "integer (required, >= 0)",
-    "title": "string (required, min 1 char)"
-  },
+  "selectedIntent": "string (required, min 1 char)",
   "answers": [
     {
       "questionIndex": "integer (required, >= 0)",
@@ -36,10 +33,7 @@ The POST `/api/v1/questions/answer` endpoint processes user answers and generate
 ```json
 {
   "goal": "일본여행 가고싶어",
-  "selectedIntent": {
-    "index": 0,
-    "title": "여행 계획"
-  },
+  "selectedIntent": "여행 계획",
   "answers": [
     {
       "questionIndex": 0,
@@ -298,10 +292,7 @@ curl -X POST "http://localhost:8000/api/v1/questions/answer" \
   -H "Authorization: Bearer your_jwt_token" \
   -d '{
     "goal": "일본여행 가고싶어",
-    "selectedIntent": {
-      "index": 0,
-      "title": "여행 계획"
-    },
+    "selectedIntent": "여행 계획",
     "answers": [
       {
         "questionIndex": 0,
@@ -327,10 +318,7 @@ const response = await fetch('/api/v1/questions/answer', {
   },
   body: JSON.stringify({
     goal: "일본여행 가고싶어",
-    selectedIntent: {
-      index: 0,
-      title: "여행 계획"
-    },
+    selectedIntent: "여행 계획",
     answers: [
       {
         questionIndex: 0,
