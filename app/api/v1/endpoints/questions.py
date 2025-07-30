@@ -170,13 +170,13 @@ async def submit_answers(
     """
     try:
         # 요청 데이터 로깅
-        logger.info(f"Answer submission request - User: {current_user.id}, Goal: '{request.goal}', Intent: '{request.selectedIntent.title}', Answers: {len(request.answers)}")
+        logger.info(f"Answer submission request - User: {current_user.id}, Goal: '{request.goal}', Intent: '{request.selectedIntent}', Answers: {len(request.answers)}")
         
         # 입력 데이터 검증
         if not request.goal.strip():
             raise HTTPException(status_code=400, detail="목표(goal)는 필수입니다.")
         
-        if not request.selectedIntent.title.strip():
+        if not request.selectedIntent.strip():
             raise HTTPException(status_code=400, detail="선택된 의도(selectedIntent)는 필수입니다.")
         
         if not request.answers or len(request.answers) == 0:

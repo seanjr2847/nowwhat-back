@@ -138,7 +138,7 @@ class ChecklistOrchestrator:
             # Gemini에 체크리스트 생성 요청
             prompt = self._create_checklist_prompt(
                 request.goal, 
-                request.selectedIntent.title, 
+                request.selectedIntent, 
                 answer_context
             )
             
@@ -150,7 +150,7 @@ class ChecklistOrchestrator:
             
         except Exception as e:
             logger.error(f"AI checklist generation failed: {str(e)}")
-            return self._get_default_checklist_template(request.selectedIntent.title)
+            return self._get_default_checklist_template(request.selectedIntent)
     
     async def _perform_parallel_search(self, request: QuestionAnswersRequest):
         """병렬 검색 실행"""
@@ -169,7 +169,7 @@ class ChecklistOrchestrator:
             # 검색 쿼리 생성
             search_queries = perplexity_service.generate_search_queries(
                 request.goal,
-                request.selectedIntent.title,
+                request.selectedIntent,
                 answers_dict
             )
             
@@ -373,7 +373,7 @@ class ChecklistOrchestrator:
         """모든 생성 방법 실패 시 사용할 폴백 체크리스트"""
         
         logger.warning("Using fallback checklist due to generation failures")
-        return self._get_default_checklist_template(request.selectedIntent.title)
+        return self._get_default_checklist_template(request.selectedIntent)
     
     async def _save_final_checklist(
         self,
@@ -391,9 +391,9 @@ class ChecklistOrchestrator:
             # Checklist 레코드 생성
             checklist = Checklist(
                 id=checklist_id,
-                title=f"{request.selectedIntent.title}: {request.goal}",
+                title=f"{request.selectedIntent}: {request.goal}",
                 description=f"'{request.goal}' 목표 달성을 위한 맞춤형 체크리스트",
-                category=request.selectedIntent.title,
+                category=request.selectedIntent,
                 progress=0.0,
                 is_public=True,
                 user_id=user.id

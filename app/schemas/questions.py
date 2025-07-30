@@ -37,11 +37,6 @@ class QuestionSetResponse(BaseModel):
     createdAt: str
 
 # New schemas for POST /questions/answer endpoint
-class SelectedIntentSchema(BaseModel):
-    """선택된 의도 정보"""
-    index: int = Field(..., ge=0, description="Intent index from analysis")
-    title: str = Field(..., min_length=1, description="Selected intent title")
-
 class AnswerItemSchema(BaseModel):
     """개별 답변 항목"""
     questionIndex: int = Field(..., ge=0, description="Question index")
@@ -51,17 +46,14 @@ class AnswerItemSchema(BaseModel):
 class QuestionAnswersRequest(BaseModel):
     """POST /questions/answer 요청 스키마"""
     goal: str = Field(..., min_length=1, max_length=500, description="Initial user goal")
-    selectedIntent: SelectedIntentSchema = Field(..., description="Selected intent from analysis")
+    selectedIntent: str = Field(..., min_length=1, description="Selected intent title (string for consistency)")
     answers: List[AnswerItemSchema] = Field(..., min_items=1, description="List of question answers")
 
     class Config:
         schema_extra = {
             "example": {
                 "goal": "일본여행 가고싶어",
-                "selectedIntent": {
-                    "index": 0,
-                    "title": "여행 계획"
-                },
+                "selectedIntent": "여행 계획",
                 "answers": [
                     {
                         "questionIndex": 0,
