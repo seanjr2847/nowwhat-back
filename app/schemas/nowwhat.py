@@ -81,6 +81,22 @@ class AnswerRequest(BaseModel):
     answeredAt: datetime = Field(default_factory=datetime.now)
 
 # 체크리스트 관련 스키마
+class ContactInfo(BaseModel):
+    name: str
+    phone: str
+    email: Optional[str] = None
+
+class LinkInfo(BaseModel):
+    title: str
+    url: str
+
+class ItemDetails(BaseModel):
+    tips: Optional[List[str]] = None
+    contacts: Optional[List[ContactInfo]] = None
+    links: Optional[List[LinkInfo]] = None
+    price: Optional[str] = None
+    location: Optional[str] = None
+
 class ChecklistItemBase(BaseModel):
     title: str = Field(..., description="체크리스트 아이템 제목")
     description: Optional[str] = Field(None, description="체크리스트 아이템 설명")
@@ -93,6 +109,7 @@ class ChecklistItemResponse(ChecklistItemBase):
     order: int
     isCompleted: bool = False
     completedAt: Optional[str] = None
+    details: Optional[ItemDetails] = None
 
 class ChecklistItemUpdate(BaseModel):
     title: Optional[str] = None
