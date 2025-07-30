@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.schemas.nowwhat import (
     ChecklistResponse, ChecklistCreate, ChecklistUpdate, 
-    ChecklistItemUpdate, APIResponse
+    ChecklistItemUpdate, ChecklistItemResponse, APIResponse
 )
 from app.core.auth import get_current_user
 from app.core.database import get_db
