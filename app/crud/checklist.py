@@ -36,9 +36,7 @@ class CRUDChecklist(CRUDBase[Checklist, ChecklistCreate, ChecklistUpdate]):
             title=title,
             category=category,
             description=description,
-            total_items=len(items),
-            completed_items=0,
-            progress_percentage=0.0
+            progress=0.0  # 기존 모델의 progress 필드 사용
         )
         db.add(checklist)
         db.flush()  # ID 생성을 위해
@@ -48,8 +46,7 @@ class CRUDChecklist(CRUDBase[Checklist, ChecklistCreate, ChecklistUpdate]):
         for idx, item_data in enumerate(items):
             item = ChecklistItem(
                 checklist_id=checklist.id,
-                title=item_data['title'],
-                description=item_data.get('description'),
+                text=item_data['title'],  # text 필드 사용
                 order=idx + 1,
                 is_completed=False
             )
@@ -81,22 +78,10 @@ class CRUDChecklist(CRUDBase[Checklist, ChecklistCreate, ChecklistUpdate]):
             ChecklistItem.checklist_id == checklist_id
         ).count()
         
-        # 진행률 계산
+        # 진행률 계산 및 업데이트 (기존 모델의 progress 필드만 사용)
         progress = (completed_count / total_count * 100) if total_count > 0 else 0
-        
-        # 업데이트
-        checklist.completed_items = completed_count
-        checklist.total_items = total_count
-        checklist.progress_percentage = round(progress, 1)
+        checklist.progress = round(progress, 1)
         checklist.updated_at = datetime.utcnow()
-        
-        # 모든 아이템이 완료되면 체크리스트도 완료로 표시
-        if completed_count == total_count and total_count > 0:
-            checklist.is_completed = True
-            checklist.completed_at = datetime.utcnow()
-        else:
-            checklist.is_completed = False
-            checklist.completed_at = None
         
         db.add(checklist)
         db.commit()

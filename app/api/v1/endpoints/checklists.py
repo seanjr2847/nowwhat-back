@@ -38,20 +38,26 @@ async def get_user_checklists(
             # 각 체크리스트의 아이템들도 함께 조회
             cl_with_items = checklist.get_with_items(db=db, checklist_id=cl.id)
             
+            # 진행률 계산
+            total_items = len(cl_with_items.items) if cl_with_items and cl_with_items.items else 0
+            completed_items = len([item for item in (cl_with_items.items if cl_with_items and cl_with_items.items else []) if item.is_completed])
+            progress_percentage = (completed_items / total_items * 100) if total_items > 0 else 0.0
+            is_completed = total_items > 0 and completed_items == total_items
+            
             result.append(ChecklistResponse(
                 id=cl.id,
                 title=cl.title,
                 category=cl.category,
                 description=cl.description,
-                totalItems=cl.total_items,
-                completedItems=cl.completed_items,
-                progressPercentage=cl.progress_percentage,
-                isCompleted=cl.is_completed,
+                totalItems=total_items,
+                completedItems=completed_items,
+                progressPercentage=round(progress_percentage, 1),
+                isCompleted=is_completed,
                 items=[
                     {
                         "id": item.id,
-                        "title": item.title,
-                        "description": item.description,
+                        "title": item.text,  # text 필드 사용
+                        "description": "",   # 기본값
                         "order": item.order,
                         "isCompleted": item.is_completed,
                         "completedAt": item.completed_at.isoformat() if item.completed_at else None
@@ -60,7 +66,7 @@ async def get_user_checklists(
                 ],
                 createdAt=cl.created_at.isoformat(),
                 updatedAt=cl.updated_at.isoformat() if cl.updated_at else None,
-                completedAt=cl.completed_at.isoformat() if cl.completed_at else None
+                completedAt=None  # 기존 모델에 없음
             ))
         
         return result
@@ -95,20 +101,26 @@ async def get_checklist(
                 detail="이 체크리스트에 접근할 권한이 없습니다."
             )
         
+        # 진행률 계산
+        total_items = len(cl.items) if cl.items else 0
+        completed_items = len([item for item in (cl.items if cl.items else []) if item.is_completed])
+        progress_percentage = (completed_items / total_items * 100) if total_items > 0 else 0.0
+        is_completed = total_items > 0 and completed_items == total_items
+        
         return ChecklistResponse(
             id=cl.id,
             title=cl.title,
             category=cl.category,
             description=cl.description,
-            totalItems=cl.total_items,
-            completedItems=cl.completed_items,
-            progressPercentage=cl.progress_percentage,
-            isCompleted=cl.is_completed,
+            totalItems=total_items,
+            completedItems=completed_items,
+            progressPercentage=round(progress_percentage, 1),
+            isCompleted=is_completed,
             items=[
                 {
                     "id": item.id,
-                    "title": item.title,
-                    "description": item.description,
+                    "title": item.text,  # text 필드 사용
+                    "description": "",   # 기본값
                     "order": item.order,
                     "isCompleted": item.is_completed,
                     "completedAt": item.completed_at.isoformat() if item.completed_at else None
@@ -117,7 +129,7 @@ async def get_checklist(
             ],
             createdAt=cl.created_at.isoformat(),
             updatedAt=cl.updated_at.isoformat() if cl.updated_at else None,
-            completedAt=cl.completed_at.isoformat() if cl.completed_at else None
+            completedAt=None  # 기존 모델에 없음
         )
         
     except HTTPException:
@@ -154,20 +166,26 @@ async def create_checklist(
             items=[item.dict() for item in checklist_data.items]
         )
         
+        # 진행률 계산
+        total_items = len(new_checklist.items) if new_checklist.items else 0
+        completed_items = len([item for item in (new_checklist.items if new_checklist.items else []) if item.is_completed])
+        progress_percentage = (completed_items / total_items * 100) if total_items > 0 else 0.0
+        is_completed = total_items > 0 and completed_items == total_items
+        
         return ChecklistResponse(
             id=new_checklist.id,
             title=new_checklist.title,
             category=new_checklist.category,
             description=new_checklist.description,
-            totalItems=new_checklist.total_items,
-            completedItems=new_checklist.completed_items,
-            progressPercentage=new_checklist.progress_percentage,
-            isCompleted=new_checklist.is_completed,
+            totalItems=total_items,
+            completedItems=completed_items,
+            progressPercentage=round(progress_percentage, 1),
+            isCompleted=is_completed,
             items=[
                 {
                     "id": item.id,
-                    "title": item.title,
-                    "description": item.description,
+                    "title": item.text,  # text 필드 사용
+                    "description": "",   # 기본값
                     "order": item.order,
                     "isCompleted": item.is_completed,
                     "completedAt": item.completed_at.isoformat() if item.completed_at else None
@@ -176,7 +194,7 @@ async def create_checklist(
             ],
             createdAt=new_checklist.created_at.isoformat(),
             updatedAt=new_checklist.updated_at.isoformat() if new_checklist.updated_at else None,
-            completedAt=new_checklist.completed_at.isoformat() if new_checklist.completed_at else None
+            completedAt=None  # 기존 모델에 없음
         )
         
     except HTTPException:
