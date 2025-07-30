@@ -82,7 +82,7 @@ async def get_user_checklists(
                 progress_percentage = (completed_items / total_items * 100) if total_items > 0 else 0.0
                 is_completed = total_items > 0 and completed_items == total_items
                 
-                # ChecklistItemResponse 형식으로 변환
+                # 아이템 응답 형식으로 변환 (dict 형태 유지)
                 item_responses = []
                 for item in items:
                     item_dict = {
@@ -94,7 +94,7 @@ async def get_user_checklists(
                         "completedAt": item.completed_at.isoformat() if item.completed_at else None,
                         "details": _get_item_details(db, item.id)
                     }
-                    item_responses.append(ChecklistItemResponse(**item_dict))
+                    item_responses.append(item_dict)
                 
                 result.append(ChecklistResponse(
                     id=cl.id,
@@ -117,7 +117,7 @@ async def get_user_checklists(
                 continue
         
         logger.info(f"Successfully returning {len(result)} checklists")
-        return result
+        return result if result is not None else []
         
     except Exception as e:
         logger.error(f"Get user checklists error: {e}", exc_info=True)
