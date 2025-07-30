@@ -9,7 +9,8 @@ from app.schemas.questions import QuestionAnswersRequest, QuestionAnswersRespons
 from app.services.gemini_service import gemini_service
 from app.services.perplexity_service import perplexity_service
 from app.crud.session import validate_session_basic, save_user_answers_to_session
-from app.models.database import Checklist, ChecklistItem, User
+from app.models.database import Checklist, ChecklistItem, ChecklistItemDetails, User
+from app.services.details_extractor import details_extractor
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -389,8 +390,8 @@ class ChecklistOrchestrator:
         self, 
         checklist_items: List[str], 
         search_results: List
-    ) -> List[Dict[str, str]]:
-        """체크리스트 아이템별로 관련 검색 결과를 description으로 매칭"""
+    ) -> List[Dict[str, Any]]:
+        """체크리스트 아이템별로 관련 검색 결과를 details로 매칭"""
         
         enhanced_items = []
         
@@ -399,20 +400,46 @@ class ChecklistOrchestrator:
         
         if not successful_results:
             logger.warning("No successful search results to match with checklist items")
-            return [{"text": item, "description": ""} for item in checklist_items]
+            return [{"text": item, "details": None} for item in checklist_items]
         
-        # 각 체크리스트 아이템에 대해 가장 관련성 높은 검색 결과 찾기
+        # 각 체크리스트 아이템에 대해 관련 검색 결과에서 details 추출
         for item in checklist_items:
-            best_description = self._find_best_matching_description(item, successful_results)
+            # 아이템과 관련성 높은 검색 결과들 찾기
+            relevant_results = self._find_relevant_search_results(item, successful_results)
+            
+            # 검색 결과에서 details 정보 추출
+            item_details = details_extractor.extract_details_from_search_results(
+                relevant_results, item
+            )
+            
             enhanced_items.append({
                 "text": item,
-                "description": best_description
+                "details": details_extractor.to_dict(item_details)
             })
         
-        success_count = sum(1 for item in enhanced_items if item["description"])
-        logger.info(f"Matched descriptions for {success_count}/{len(checklist_items)} checklist items")
+        details_count = sum(1 for item in enhanced_items if item["details"])
+        logger.info(f"Generated details for {details_count}/{len(checklist_items)} checklist items")
         
         return enhanced_items
+    
+    def _find_relevant_search_results(self, item_text: str, search_results: List) -> List:
+        """아이템과 관련성 높은 검색 결과들 찾기"""
+        
+        item_keywords = self._extract_keywords_from_item(item_text)
+        scored_results = []
+        
+        for result in search_results:
+            if not hasattr(result, 'content') or not result.content:
+                continue
+            
+            # 관련성 점수 계산
+            score = self._calculate_relevance_score(item_keywords, result.content)
+            if score > 0.1:  # 최소 관련성 임계값
+                scored_results.append((result, score))
+        
+        # 점수 순으로 정렬하여 상위 결과 반환
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        return [result for result, score in scored_results[:3]]  # 상위 3개
     
     def _find_best_matching_description(self, checklist_item: str, search_results: List) -> str:
         """체크리스트 아이템에 가장 적합한 검색 결과 찾기"""
@@ -643,18 +670,17 @@ class ChecklistOrchestrator:
             db.add(checklist)
             db.flush()  # ID를 얻기 위해 flush
             
-            # ChecklistItem 레코드들 생성 (description 포함)
+            # ChecklistItem 레코드들과 Details 생성
             for order, item_data in enumerate(checklist_items):
                 # item_data가 딕셔너리인 경우와 문자열인 경우 모두 처리
                 if isinstance(item_data, dict):
                     text = item_data.get("text", "")
-                    # description은 아직 데이터베이스 모델에 없으므로 로깅만
-                    description = item_data.get("description", "")
-                    if description:
-                        logger.info(f"Item '{text[:30]}...' has description: {description[:50]}...")
+                    details_data = item_data.get("details")
                 else:
                     text = str(item_data)
+                    details_data = None
                 
+                # ChecklistItem 생성
                 item = ChecklistItem(
                     checklist_id=checklist.id,
                     text=text,
@@ -662,6 +688,24 @@ class ChecklistOrchestrator:
                     order=order
                 )
                 db.add(item)
+                db.flush()  # item.id 생성을 위해
+                
+                # ChecklistItemDetails 생성 (details가 있는 경우만)
+                if details_data:
+                    item_details = ChecklistItemDetails(
+                        item_id=item.id,
+                        tips=details_data.get("tips"),
+                        contacts=details_data.get("contacts"),
+                        links=details_data.get("links"),
+                        price=details_data.get("price"),
+                        location=details_data.get("location"),
+                        search_source="perplexity"
+                    )
+                    db.add(item_details)
+                    
+                    details_count = sum(1 for key in ['tips', 'contacts', 'links', 'price', 'location'] 
+                                      if details_data.get(key))
+                    logger.info(f"Saved {details_count} details for item: {text[:30]}...")
             
             db.commit()
             

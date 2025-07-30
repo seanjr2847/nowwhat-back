@@ -8,12 +8,42 @@ from app.schemas.nowwhat import (
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.crud.checklist import checklist
-from app.models.database import ChecklistItem
+from app.models.database import ChecklistItem, ChecklistItemDetails
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def _get_item_details(db: Session, item_id: str) -> dict:
+    """체크리스트 아이템의 details 정보 조회"""
+    try:
+        details = db.query(ChecklistItemDetails).filter(
+            ChecklistItemDetails.item_id == item_id
+        ).first()
+        
+        if not details:
+            return {}
+        
+        # API 구조에 맞게 포맷팅
+        result = {}
+        
+        if details.tips:
+            result["tips"] = details.tips
+        if details.contacts:
+            result["contacts"] = details.contacts
+        if details.links:
+            result["links"] = details.links
+        if details.price:
+            result["price"] = details.price
+        if details.location:
+            result["location"] = details.location
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to get item details for {item_id}: {e}")
+        return {}
 
 @router.get("/", response_model=List[ChecklistResponse])
 async def get_user_checklists(
@@ -57,10 +87,11 @@ async def get_user_checklists(
                     {
                         "id": item.id,
                         "title": item.text,  # text 필드 사용
-                        "description": "",   # 기본값
+                        "description": "",   # 기본값 (호환성)
                         "order": item.order,
                         "isCompleted": item.is_completed,
-                        "completedAt": item.completed_at.isoformat() if item.completed_at else None
+                        "completedAt": item.completed_at.isoformat() if item.completed_at else None,
+                        "details": _get_item_details(db, item.id)
                     }
                     for item in (cl_with_items.items if cl_with_items and cl_with_items.items else [])
                 ],
@@ -123,7 +154,8 @@ async def get_checklist(
                     "description": "",   # 기본값
                     "order": item.order,
                     "isCompleted": item.is_completed,
-                    "completedAt": item.completed_at.isoformat() if item.completed_at else None
+                    "completedAt": item.completed_at.isoformat() if item.completed_at else None,
+                    "details": self._get_item_details(db, item.id)
                 }
                 for item in (cl.items if cl.items else [])
             ],
@@ -188,7 +220,8 @@ async def create_checklist(
                     "description": "",   # 기본값
                     "order": item.order,
                     "isCompleted": item.is_completed,
-                    "completedAt": item.completed_at.isoformat() if item.completed_at else None
+                    "completedAt": item.completed_at.isoformat() if item.completed_at else None,
+                    "details": self._get_item_details(db, item.id)
                 }
                 for item in new_checklist.items
             ],

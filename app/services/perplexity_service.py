@@ -95,7 +95,16 @@ class PerplexityService:
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a helpful assistant that provides current, accurate information. Provide concise, factual answers with reliable sources."
+                        "content": """You are a helpful assistant that provides structured information. 
+                        Always respond in JSON format with the following structure:
+                        {
+                            "tips": ["practical tip 1", "practical tip 2"],
+                            "contacts": [{"name": "contact name", "phone": "phone number", "email": "email"}],
+                            "links": [{"title": "link description", "url": "https://..."}],
+                            "price": "price information or null",
+                            "location": "location/address information or null"
+                        }
+                        Include only relevant, accurate information. Use null for missing data."""
                     },
                     {
                         "role": "user", 
@@ -128,7 +137,7 @@ class PerplexityService:
             return self._create_error_result(query, str(e))
     
     def _parse_perplexity_response(self, query: str, data: Dict[str, Any]) -> SearchResult:
-        """Perplexity API 응답 파싱"""
+        """Perplexity API 응답 파싱 (JSON 구조화된 응답)"""
         try:
             if "choices" not in data or not data["choices"]:
                 return self._create_error_result(query, "No choices in response")
@@ -141,15 +150,44 @@ class PerplexityService:
             if not content:
                 return self._create_error_result(query, "Empty content in response")
             
-            # 소스 정보 추출 (Perplexity는 보통 응답에 소스를 포함)
-            sources = self._extract_sources_from_content(content)
-            
-            return SearchResult(
-                query=query,
-                content=content,
-                sources=sources,
-                success=True
-            )
+            # JSON 파싱 시도
+            try:
+                import json
+                # JSON 부분만 추출 (```json ... ``` 형태로 올 수 있음)
+                json_content = content
+                if "```json" in content:
+                    start = content.find("```json") + 7
+                    end = content.find("```", start)
+                    if end != -1:
+                        json_content = content[start:end].strip()
+                elif "{" in content:
+                    # 첫 번째 { 부터 마지막 } 까지 추출
+                    start = content.find("{")
+                    end = content.rfind("}") + 1
+                    if start != -1 and end > start:
+                        json_content = content[start:end]
+                
+                structured_data = json.loads(json_content)
+                logger.info(f"Successfully parsed JSON response for query: {query[:50]}...")
+                
+                return SearchResult(
+                    query=query,
+                    content=json.dumps(structured_data),  # 구조화된 데이터를 JSON 문자열로
+                    sources=structured_data.get("links", []),
+                    success=True
+                )
+                
+            except json.JSONDecodeError as json_err:
+                logger.warning(f"Failed to parse JSON for query '{query}': {json_err}")
+                logger.warning(f"Raw content: {content[:200]}...")
+                # JSON 파싱 실패시 기존 텍스트 방식으로 폴백
+                sources = self._extract_sources_from_content(content)
+                return SearchResult(
+                    query=query,
+                    content=content,
+                    sources=sources,
+                    success=True
+                )
             
         except Exception as e:
             logger.error(f"Failed to parse Perplexity response for query '{query}': {str(e)}")

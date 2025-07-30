@@ -97,6 +97,28 @@ class ChecklistItem(Base):
     
     # 관계
     checklist = relationship("Checklist", back_populates="items")
+    details = relationship("ChecklistItemDetails", back_populates="item", uselist=False, cascade="all, delete-orphan")
+
+class ChecklistItemDetails(Base):
+    __tablename__ = "checklist_item_details"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    item_id = Column(String, ForeignKey("checklist_items.id"), nullable=False, unique=True)
+    
+    # 퍼플렉시티 검색 결과 저장
+    tips = Column(JSON, nullable=True)  # ["실용적 팁1", "실용적 팁2", ...]
+    contacts = Column(JSON, nullable=True)  # [{"name": "이름", "phone": "번호", "email": "메일"}, ...]
+    links = Column(JSON, nullable=True)  # [{"title": "제목", "url": "링크"}, ...]
+    price = Column(String, nullable=True)  # "예상 비용 정보"
+    location = Column(String, nullable=True)  # "위치/주소 정보"
+    
+    # 메타데이터
+    search_source = Column(String, default="perplexity")  # 검색 소스
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # 관계
+    item = relationship("ChecklistItem", back_populates="details")
 
 class Feedback(Base):
     __tablename__ = "feedbacks"
