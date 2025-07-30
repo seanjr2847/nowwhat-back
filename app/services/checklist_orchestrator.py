@@ -434,7 +434,7 @@ class ChecklistOrchestrator:
         checklist_items: List[str], 
         search_results: List
     ) -> List[Dict[str, Any]]:
-        """체크리스트 아이템별로 관련 검색 결과를 details로 매칭"""
+        """체크리스트 아이템별로 1:1 매칭으로 검색 결과를 details로 변환"""
         
         enhanced_items = []
         
@@ -445,23 +445,34 @@ class ChecklistOrchestrator:
             logger.warning("No successful search results to match with checklist items")
             return [{"text": item, "details": None} for item in checklist_items]
         
-        # 각 체크리스트 아이템에 대해 관련 검색 결과에서 details 추출
-        for item in checklist_items:
-            # 아이템과 관련성 높은 검색 결과들 찾기
-            relevant_results = self._find_relevant_search_results(item, successful_results)
-            
-            # 검색 결과에서 details 정보 추출
-            item_details = details_extractor.extract_details_from_search_results(
-                relevant_results, item
-            )
-            
-            enhanced_items.append({
-                "text": item,
-                "details": details_extractor.to_dict(item_details)
-            })
+        logger.info(f"🔄 1:1 매칭 시작: {len(checklist_items)}개 아이템 ↔ {len(successful_results)}개 검색 결과")
+        
+        # 1:1 매칭: 각 체크리스트 아이템에 순서대로 검색 결과 할당
+        for i, item in enumerate(checklist_items):
+            # 순서대로 매칭 (i번째 아이템 → i번째 검색 결과)
+            if i < len(successful_results):
+                assigned_result = successful_results[i]
+                logger.info(f"   {i+1}. '{item[:40]}...' ← '{assigned_result.query[:40]}...'")
+                
+                # 할당된 검색 결과에서 details 정보 추출
+                item_details = details_extractor.extract_details_from_search_results(
+                    [assigned_result], item
+                )
+                
+                enhanced_items.append({
+                    "text": item,
+                    "details": details_extractor.to_dict(item_details)
+                })
+            else:
+                # 검색 결과가 부족한 경우 빈 details
+                logger.warning(f"   {i+1}. '{item[:40]}...' ← (검색 결과 없음)")
+                enhanced_items.append({
+                    "text": item,
+                    "details": None
+                })
         
         details_count = sum(1 for item in enhanced_items if item["details"])
-        logger.info(f"Generated details for {details_count}/{len(checklist_items)} checklist items")
+        logger.info(f"✅ 1:1 매칭 완료: {details_count}/{len(checklist_items)}개 아이템에 details 생성")
         
         return enhanced_items
     

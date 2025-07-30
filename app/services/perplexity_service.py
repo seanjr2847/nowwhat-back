@@ -334,11 +334,10 @@ class PerplexityService:
         
         search_queries = []
         
-        # 각 체크리스트 아이템을 기반으로 검색 쿼리 생성
-        processed_items = checklist_items[:10]  # 최대 10개 아이템
-        logger.info(f"   📝 처리할 아이템: {len(processed_items)}개")
+        # 각 체크리스트 아이템을 기반으로 1:1 검색 쿼리 생성
+        logger.info(f"   📝 1:1 매핑으로 처리할 아이템: {len(checklist_items)}개")
         
-        for i, item in enumerate(processed_items):
+        for i, item in enumerate(checklist_items):
             logger.debug(f"   🔍 아이템 {i+1} 처리: '{item[:50]}...'")
             
             # 아이템에서 핵심 키워드 추출
@@ -346,28 +345,33 @@ class PerplexityService:
             logger.debug(f"      키워드: {core_keywords}")
             
             if core_keywords:
-                # 여러 패턴의 검색 쿼리 생성
+                # 단일 검색 쿼리 생성 (1:1 매핑)
                 queries = self._generate_item_specific_queries(core_keywords, answer_context)
                 logger.debug(f"      생성된 쿼리: {queries}")
-                search_queries.extend(queries)
+                search_queries.extend(queries)  # 이제 항상 1개만 추가됨
             else:
-                logger.warning(f"      ⚠️  키워드 추출 실패: '{item[:30]}...'")
+                # 키워드 추출 실패시 기본 쿼리 생성
+                fallback_query = f"{item[:20]} 방법"
+                search_queries.append(fallback_query)
+                logger.warning(f"      ⚠️  키워드 추출 실패 → 기본 쿼리: '{fallback_query}'")
         
-        # 중복 제거 및 길이 제한
-        unique_queries = list(dict.fromkeys(search_queries))[:15]  # 최대 15개
+        # 중복 제거하지 않고 순서 유지 (1:1 매핑을 위해)
+        unique_queries = search_queries  # 중복 제거 없이 모든 쿼리 유지
         
         logger.info("=" * 50)
-        logger.info("📝 생성된 검색 쿼리 목록")
+        logger.info("📝 1:1 매핑 검색 쿼리 목록")
         logger.info("=" * 50)
-        for i, query in enumerate(unique_queries):
-            logger.info(f"   {i+1:2d}. {query}")
+        for i, (item, query) in enumerate(zip(checklist_items, unique_queries)):
+            logger.info(f"   {i+1:2d}. '{item[:30]}...' → '{query}'")
         logger.info("=" * 50)
         
-        logger.info(f"✅ 쿼리 생성 완료: {len(search_queries)} → {len(unique_queries)}개 (중복 제거)")
+        logger.info(f"✅ 1:1 쿼리 생성 완료: {len(checklist_items)}개 아이템 → {len(unique_queries)}개 쿼리")
         
         if not unique_queries:
             logger.error("🚨 생성된 검색 쿼리가 없습니다!")
             logger.error("   체크리스트 아이템에서 키워드 추출이 실패했을 수 있습니다.")
+        elif len(unique_queries) != len(checklist_items):
+            logger.warning(f"⚠️  쿼리 수 불일치: {len(checklist_items)}개 아이템 vs {len(unique_queries)}개 쿼리")
         
         return unique_queries
     
@@ -406,26 +410,26 @@ class PerplexityService:
         return keywords[:5]  # 상위 5개 키워드
     
     def _generate_item_specific_queries(self, keywords: List[str], context: str = "") -> List[str]:
-        """키워드를 기반으로 다양한 검색 쿼리 생성"""
+        """키워드를 기반으로 단일 검색 쿼리 생성 (1:1 매핑)"""
         if not keywords:
             return []
         
         main_keyword = keywords[0]
-        additional_keywords = " ".join(keywords[1:3]) if len(keywords) > 1 else ""
+        additional_keywords = " ".join(keywords[1:2]) if len(keywords) > 1 else ""
         
-        # 검색 패턴 템플릿 (범용적)
-        query_patterns = [
-            f"{main_keyword} 방법 추천",
-            f"{main_keyword} 가이드 팁", 
-            f"{main_keyword} {additional_keywords} 정보".strip(),
-        ]
+        # 가장 적절한 단일 쿼리 생성
+        if additional_keywords:
+            primary_query = f"{main_keyword} {additional_keywords} 방법 추천"
+        else:
+            primary_query = f"{main_keyword} 방법 추천"
         
-        # 컨텍스트가 있으면 개인화
+        # 컨텍스트가 있으면 개인화 (더 구체적인 쿼리 선호)
         if context and len(context) > 5:
             context_short = context[:30]  # 너무 길지 않게
-            query_patterns.append(f"{main_keyword} {context_short} 추천")
+            contextual_query = f"{main_keyword} {context_short} 추천"
+            return [contextual_query]  # 컨텍스트가 있으면 이를 우선
         
-        return query_patterns[:2]  # 아이템당 최대 2개 쿼리
+        return [primary_query]  # 아이템당 정확히 1개 쿼리
     
     def _extract_answer_context(self, answers: List[Dict[str, Any]]) -> str:
         """답변에서 검색에 유용한 컨텍스트 추출 (유연한 방식)"""
