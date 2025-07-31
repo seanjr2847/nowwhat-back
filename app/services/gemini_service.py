@@ -306,7 +306,7 @@ class GeminiService:
                 self.model.generate_content, 
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=2048,  # 증가
+                    max_output_tokens=4096,  # 더 큰 증가
                     temperature=0.7,
                     top_p=0.8,
                     top_k=40
@@ -325,7 +325,17 @@ class GeminiService:
             # Safety rating 및 finish reason 확인
             if hasattr(response, 'candidates') and response.candidates:
                 for i, candidate in enumerate(response.candidates):
-                    logger.debug(f"Candidate {i} finish_reason: {candidate.finish_reason if hasattr(candidate, 'finish_reason') else 'N/A'}")
+                    finish_reason = candidate.finish_reason if hasattr(candidate, 'finish_reason') else 'N/A'
+                    logger.debug(f"Candidate {i} finish_reason: {finish_reason}")
+                    
+                    # finish_reason 해석
+                    if finish_reason == 2:
+                        logger.warning("Response was truncated due to MAX_TOKENS limit - consider increasing max_output_tokens")
+                    elif finish_reason == 3:
+                        logger.warning("Response was blocked by safety filters")
+                    elif finish_reason == 4:
+                        logger.warning("Response was blocked due to recitation concerns")
+                    
                     if hasattr(candidate, 'safety_ratings'):
                         logger.debug(f"Candidate {i} safety_ratings: {candidate.safety_ratings}")
             
