@@ -306,8 +306,10 @@ class GeminiService:
                 self.model.generate_content, 
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=1000,
+                    max_output_tokens=2048,  # 증가
                     temperature=0.7,
+                    top_p=0.8,
+                    top_k=40
                 )
             )
             
@@ -316,11 +318,35 @@ class GeminiService:
                 logger.error("Gemini returned None response")
                 raise Exception("Gemini returned None response")
             
+            # 응답 객체 구조 확인
+            logger.debug(f"Gemini response type: {type(response)}")
+            logger.debug(f"Gemini response attributes: {dir(response)}")
+            
+            # Safety rating 및 finish reason 확인
+            if hasattr(response, 'candidates') and response.candidates:
+                for i, candidate in enumerate(response.candidates):
+                    logger.debug(f"Candidate {i} finish_reason: {candidate.finish_reason if hasattr(candidate, 'finish_reason') else 'N/A'}")
+                    if hasattr(candidate, 'safety_ratings'):
+                        logger.debug(f"Candidate {i} safety_ratings: {candidate.safety_ratings}")
+            
             if not hasattr(response, 'text'):
                 logger.error(f"Gemini response has no text attribute: {type(response)}")
-                raise Exception("Gemini response has no text attribute")
+                # 대안으로 candidates에서 텍스트 추출 시도
+                if hasattr(response, 'candidates') and response.candidates:
+                    for candidate in response.candidates:
+                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    logger.debug(f"Found text in candidate.content.parts: {part.text[:100]}...")
+                                    response_text = part.text
+                                    break
+                    else:
+                        raise Exception("Gemini response has no text attribute and no text in candidates")
+                else:
+                    raise Exception("Gemini response has no text attribute")
+            else:
+                response_text = response.text
             
-            response_text = response.text
             logger.debug(f"Raw Gemini response (length: {len(response_text) if response_text else 0}): '{response_text}'")
             
             if not response_text or not response_text.strip():
