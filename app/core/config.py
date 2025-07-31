@@ -34,8 +34,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000", 
         "http://localhost:8080", 
-        "https://nowwhat-front.vercel.app",  # Vercel 프론트엔드 도메인
-        "*"  # 개발용, 프로덕션에서는 제거 권장
+        "https://nowwhat-front.vercel.app"  # Vercel 프론트엔드 도메인
     ]
     
     # 로깅 설정
