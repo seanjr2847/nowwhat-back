@@ -10,14 +10,31 @@ import logging
 import uuid
 
 logger = logging.getLogger(__name__)
+# Gemini 서비스 디버깅을 위해 임시로 DEBUG 레벨 설정
+logger.setLevel(logging.DEBUG)
+# 콘솔 핸들러 추가 (이미 있다면 무시됨)
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
 
 # Gemini API 설정
 if settings.GEMINI_API_KEY:
     genai.configure(api_key=settings.GEMINI_API_KEY)
+    logger.info(f"Gemini API configured with key: {settings.GEMINI_API_KEY[:10]}...{settings.GEMINI_API_KEY[-4:]}")
+else:
+    logger.error("GEMINI_API_KEY not found in settings")
 
 class GeminiService:
     def __init__(self):
+        if not settings.GEMINI_API_KEY:
+            logger.error("Cannot initialize GeminiService: GEMINI_API_KEY not set")
+            raise ValueError("GEMINI_API_KEY not configured")
+        
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+        logger.info(f"GeminiService initialized with model: {settings.GEMINI_MODEL}")
         
     async def analyze_intent(self, goal: str, user_country: Optional[str] = None) -> List[IntentOption]:
         """사용자 목표를 분석하여 4가지 의도 옵션 생성"""
@@ -284,6 +301,7 @@ class GeminiService:
     async def _call_gemini_api(self, prompt: str) -> str:
         """Gemini API 호출"""
         try:
+            logger.debug(f"Sending prompt to Gemini (length: {len(prompt)} chars)")
             response = await asyncio.to_thread(
                 self.model.generate_content, 
                 prompt,
@@ -292,22 +310,54 @@ class GeminiService:
                     temperature=0.7,
                 )
             )
-            return response.text
+            
+            # 응답 상태 확인
+            if not response:
+                logger.error("Gemini returned None response")
+                raise Exception("Gemini returned None response")
+            
+            if not hasattr(response, 'text'):
+                logger.error(f"Gemini response has no text attribute: {type(response)}")
+                raise Exception("Gemini response has no text attribute")
+            
+            response_text = response.text
+            logger.debug(f"Raw Gemini response (length: {len(response_text) if response_text else 0}): '{response_text}'")
+            
+            if not response_text or not response_text.strip():
+                logger.error("Gemini returned empty or whitespace-only response")
+                raise Exception("Gemini returned empty response")
+                
+            return response_text
+            
         except Exception as e:
+            logger.error(f"Gemini API call error details: {str(e)}")
             raise Exception(f"Gemini API call failed: {str(e)}")
     
     def _parse_response(self, response: str) -> List[IntentOption]:
         """Gemini 응답 파싱"""
         try:
+            logger.debug(f"Intent parsing - Raw response: '{response[:200]}...' (total length: {len(response)})")
+            
             # JSON 부분만 추출 (마크다운 코드 블록 제거)
             response = response.strip()
+            logger.debug(f"Intent parsing - After strip: '{response[:200]}...'")
+            
             if response.startswith("```json"):
                 response = response[7:]
+                logger.debug("Intent parsing - Removed ```json prefix")
             if response.endswith("```"):
                 response = response[:-3]
+                logger.debug("Intent parsing - Removed ``` suffix")
             response = response.strip()
             
+            logger.debug(f"Intent parsing - Final JSON to parse: '{response[:200]}...'")
+            
+            if not response:
+                logger.error("Intent parsing - Response became empty after cleaning")
+                raise ValueError("Empty response after cleaning")
+            
             intents_data = json.loads(response)
+            logger.debug(f"Intent parsing - Successfully parsed JSON with {len(intents_data) if isinstance(intents_data, list) else 'non-list'} items")
             
             if not isinstance(intents_data, list):
                 raise ValueError("Response is not a list")
