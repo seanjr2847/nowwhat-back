@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # Gemini API 설정
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     
     # Perplexity API 설정
     PERPLEXITY_API_KEY: str = os.getenv("PERPLEXITY_API_KEY", "")
