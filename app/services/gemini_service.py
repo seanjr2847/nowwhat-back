@@ -10,10 +10,28 @@ import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 # Gemini 서비스 디버깅을 위해 임시로 DEBUG 레벨 설정
 logger.setLevel(logging.DEBUG)
+
+# Pydantic 모델들 (Structured Output용)
+class ContactInfo(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
+class LinkInfo(BaseModel):
+    title: str
+    url: str
+
+class SearchResponse(BaseModel):
+    tips: List[str]
+    contacts: List[ContactInfo]
+    links: List[LinkInfo]
+    price: Optional[str] = None
+    location: Optional[str] = None
 
 @dataclass
 class SearchResult:
@@ -309,6 +327,137 @@ class GeminiService:
         """Gemini API용 프롬프트 생성"""
         return prompt_loader.get_intent_analysis_prompt(goal, user_country)
 
+    async def _call_gemini_api_with_search(self, prompt: str) -> str:
+        """Gemini API 호출 (공식 Google Search 기능 사용)"""
+        try:
+            logger.debug(f"Sending search prompt to Gemini (length: {len(prompt)} chars)")
+            
+            # 공식 Google Search grounding 구현 + Structured Output
+            try:
+                # Google Search 도구 설정 (공식 방법)
+                search_tool = genai.protos.Tool(
+                    google_search_retrieval=genai.protos.GoogleSearchRetrieval()
+                )
+                
+                logger.debug("Using Google Search grounding tool with structured output")
+                
+                response = await asyncio.to_thread(
+                    self.model.generate_content,
+                    prompt,
+                    tools=[search_tool],
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=4096,
+                        temperature=0.7,
+                        top_p=0.8,
+                        top_k=40,
+                        response_mime_type="application/json",
+                        response_schema=SearchResponse
+                    )
+                )
+                
+                logger.debug("Google Search grounding with structured output completed")
+                
+            except Exception as tool_error:
+                logger.warning(f"Google Search grounding failed: {tool_error}")
+                logger.info("Trying alternative Google Search implementation")
+                
+                try:
+                    # 대안적 구현 (최신 SDK) + Structured Output
+                    from google.generativeai.types import Tool
+                    
+                    # 최신 SDK의 GoogleSearch 도구
+                    search_tool = Tool(
+                        google_search_retrieval={}
+                    )
+                    
+                    response = await asyncio.to_thread(
+                        self.model.generate_content,
+                        prompt,
+                        tools=[search_tool],
+                        generation_config=genai.types.GenerationConfig(
+                            max_output_tokens=4096,
+                            temperature=0.7,
+                            top_p=0.8,
+                            top_k=40,
+                            response_mime_type="application/json",
+                            response_schema=SearchResponse
+                        )
+                    )
+                    
+                except Exception as alt_error:
+                    logger.warning(f"Alternative Google Search failed: {alt_error}")
+                    logger.info("Using enhanced knowledge-based prompt")
+                    
+                    # 웹 검색을 사용할 수 없는 경우, 최신 정보 요청 프롬프트 + Structured Output
+                    enhanced_prompt = f"""
+                    {prompt}
+                    
+                    중요 지시사항:
+                    - 가능한 한 최신 정보와 실제 존재하는 리소스를 제공해주세요
+                    - 실제 웹사이트 URL, 연락처, 가격 범위 등 구체적인 정보를 포함해주세요
+                    - 2024년 기준의 최신 동향과 정보를 반영해주세요
+                    - 한국 시장과 환경에 맞는 정보를 우선적으로 제공해주세요
+                    """
+
+                    response = await asyncio.to_thread(
+                        self.model.generate_content,
+                        enhanced_prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            max_output_tokens=4096,
+                            temperature=0.7,
+                            top_p=0.8,
+                            top_k=40,
+                            response_mime_type="application/json",
+                            response_schema=SearchResponse
+                        )
+                    )
+            
+            # 응답 처리
+            if not response:
+                logger.error("Gemini returned None response")
+                raise Exception("Gemini returned None response")
+            
+            # grounding metadata 확인 (웹 검색 결과가 있는지)
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'grounding_metadata'):
+                        logger.info("Response includes grounding metadata (web search results)")
+                        if hasattr(candidate.grounding_metadata, 'search_entry_point'):
+                            logger.debug(f"Search entry point: {candidate.grounding_metadata.search_entry_point}")
+                        if hasattr(candidate.grounding_metadata, 'grounding_chunks'):
+                            logger.debug(f"Found {len(candidate.grounding_metadata.grounding_chunks)} grounding chunks")
+            
+            # 텍스트 추출
+            if not hasattr(response, 'text'):
+                logger.debug("Extracting text from candidates...")
+                if hasattr(response, 'candidates') and response.candidates:
+                    for candidate in response.candidates:
+                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    response_text = part.text
+                                    break
+                    else:
+                        raise Exception("No text found in candidates")
+                else:
+                    raise Exception("No candidates in response")
+            else:
+                response_text = response.text
+            
+            logger.debug(f"Gemini search response received (length: {len(response_text) if response_text else 0})")
+            
+            if not response_text or not response_text.strip():
+                logger.error("Gemini returned empty response")
+                raise Exception("Gemini returned empty response")
+                
+            return response_text
+            
+        except Exception as e:
+            logger.error(f"Gemini search API call error: {str(e)}")
+            # 웹 검색 실패시 일반 API로 폴백
+            logger.info("Falling back to regular Gemini API without search")
+            return await self._call_gemini_api(prompt)
+    
     async def _call_gemini_api(self, prompt: str) -> str:
         """Gemini API 호출"""
         try:
@@ -537,30 +686,31 @@ class GeminiService:
             return [self._create_error_result(query, str(e)) for query in limited_queries]
     
     async def _search_single_query(self, query: str) -> SearchResult:
-        """단일 검색 쿼리 실행"""
+        """단일 검색 쿼리 실행 (Gemini 웹 검색 기능 사용)"""
         start_time = asyncio.get_event_loop().time()
         logger.debug(f"🔍 단일 검색 시작: '{query[:50]}...'")
         
         try:
-            # Gemini에게 실시간 정보를 요청하는 프롬프트 생성
-            prompt = f"""다음 주제에 대해 한국어로 구체적이고 실용적인 정보를 제공해주세요: "{query}"
+            # Gemini에게 웹 검색을 통한 최신 정보를 요청하는 프롬프트 생성 (Structured Output 사용)
+            prompt = f"""다음 주제에 대해 최신 정보를 웹에서 검색하여 한국어로 구체적이고 실용적인 정보를 제공해주세요: "{query}"
 
-응답은 반드시 다음 JSON 형식으로만 작성해주세요:
-{{
-    "tips": ["실용적인 팁 1", "실용적인 팁 2"],
-    "contacts": [{{"name": "연락처 이름", "phone": "전화번호", "email": "이메일"}}],
-    "links": [{{"title": "링크 설명", "url": "https://..."}}],
-    "price": "가격 정보 또는 null",
-    "location": "위치/주소 정보 또는 null"
-}}
+웹 검색을 통해 다음 정보들을 찾아서 제공해주세요:
 
-중요: 
-- 구체적이고 실행 가능한 정보를 포함하세요
-- 없는 정보는 null로 표시하세요
-- JSON 형식만 반환하고 다른 설명은 포함하지 마세요"""
+1. **실용적인 팁들**: 이 주제와 관련된 구체적이고 실행 가능한 조언들
+2. **연락처 정보**: 관련 서비스나 기관의 실제 연락처 (이름, 전화번호, 이메일)
+3. **유용한 링크**: 참고할 만한 웹사이트나 리소스 (제목과 URL)
+4. **가격 정보**: 관련 비용이나 예산 범위
+5. **위치 정보**: 관련 장소나 지역 정보
 
-            # Gemini API 호출
-            response = await self._call_gemini_api(prompt)
+중요 요구사항:
+- 반드시 "{query}" 주제와 직접 관련된 최신 정보만 제공하세요
+- 실제 존재하는 웹사이트 URL과 연락처를 우선적으로 제공하세요
+- 2024년 기준의 최신 동향과 정보를 반영하세요
+- 한국 시장과 환경에 맞는 정보를 우선하세요
+- 정보가 없는 항목은 비워두세요"""
+
+            # Gemini API 호출 (웹 검색 활성화)
+            response = await self._call_gemini_api_with_search(prompt)
             elapsed = asyncio.get_event_loop().time() - start_time
             
             # 응답 파싱
@@ -586,57 +736,62 @@ class GeminiService:
             return self._create_error_result(query, f"Exception: {str(e)}")
     
     def _parse_search_response(self, query: str, response: str) -> SearchResult:
-        """Gemini 검색 응답 파싱 (JSON 구조화된 응답)"""
+        """Gemini 검색 응답 파싱 (Structured Output JSON)"""
         try:
             if not response or not response.strip():
                 return self._create_error_result(query, "Empty response")
             
             content = response.strip()
+            logger.debug(f"Parsing structured output response: {content[:200]}...")
             
-            # JSON 파싱 시도
+            # Structured Output으로 인해 이미 올바른 JSON 형식이어야 함
             try:
-                # JSON 부분만 추출 (```json ... ``` 형태로 올 수 있음)
-                json_content = content
-                if "```json" in content:
-                    start = content.find("```json") + 7
-                    end = content.find("```", start)
-                    if end != -1:
-                        json_content = content[start:end].strip()
-                elif "{" in content:
-                    # 첫 번째 { 부터 마지막 } 까지 추출
-                    start = content.find("{")
-                    end = content.rfind("}") + 1
-                    if start != -1 and end > start:
-                        json_content = content[start:end]
+                structured_data = json.loads(content)
+                logger.info(f"Successfully parsed structured JSON response for query: {query[:50]}...")
                 
-                structured_data = json.loads(json_content)
-                logger.info(f"Successfully parsed JSON response for query: {query[:50]}...")
+                # 응답 구조 검증
+                if not isinstance(structured_data, dict):
+                    logger.warning("Response is not a dictionary, using as-is")
+                    structured_data = {"tips": [content], "contacts": [], "links": [], "price": None, "location": None}
                 
                 # 링크 정보를 sources로 변환
                 sources = []
                 if "links" in structured_data and isinstance(structured_data["links"], list):
-                    sources = [link.get("url", "") for link in structured_data["links"] if link.get("url")]
+                    for link in structured_data["links"]:
+                        if isinstance(link, dict) and "url" in link:
+                            sources.append(link["url"])
+                        elif isinstance(link, str):
+                            sources.append(link)
                 
                 return SearchResult(
                     query=query,
-                    content=json.dumps(structured_data, ensure_ascii=False),  # 구조화된 데이터를 JSON 문자열로
+                    content=json.dumps(structured_data, ensure_ascii=False),
                     sources=sources,
                     success=True
                 )
                 
             except json.JSONDecodeError as json_err:
-                logger.warning(f"Failed to parse JSON for query '{query}': {json_err}")
+                logger.warning(f"Failed to parse structured JSON for query '{query}': {json_err}")
                 logger.warning(f"Raw content: {content[:200]}...")
-                # JSON 파싱 실패시 기존 텍스트 방식으로 폴백
+                
+                # Structured Output 실패시 폴백
+                fallback_data = {
+                    "tips": [content] if content else ["정보를 찾을 수 없습니다."],
+                    "contacts": [],
+                    "links": [],
+                    "price": None,
+                    "location": None
+                }
+                
                 return SearchResult(
                     query=query,
-                    content=content,
+                    content=json.dumps(fallback_data, ensure_ascii=False),
                     sources=[],
                     success=True
                 )
             
         except Exception as e:
-            logger.error(f"Failed to parse Gemini search response for query '{query}': {str(e)}")
+            logger.error(f"Failed to parse Gemini structured response for query '{query}': {str(e)}")
             return self._create_error_result(query, f"Parse error: {str(e)}")
     
     def _create_error_result(self, query: str, error_message: str) -> SearchResult:
