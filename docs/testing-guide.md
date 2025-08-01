@@ -42,7 +42,6 @@ Create `tests/.env.test`:
 ```bash
 DATABASE_URL=postgresql://test:test@localhost:5432/test_nowwhat
 GEMINI_API_KEY=test_gemini_key  # Use mock in tests
-PERPLEXITY_API_KEY=test_perplexity_key  # Use mock in tests
 SECRET_KEY=test-secret-key-for-testing
 ENV=test
 LOG_LEVEL=DEBUG
@@ -59,9 +58,8 @@ tests/
 │   ├── schemas/
 │   │   └── test_questions_schemas.py
 │   ├── services/
-│   │   ├── test_perplexity_service.py
-│   │   ├── test_checklist_orchestrator.py
-│   │   └── test_gemini_service.py
+│   │   ├── test_gemini_service.py
+│   │   └── test_checklist_orchestrator.py
 │   ├── api/
 │   │   └── test_questions_endpoint.py
 │   └── conftest.py
@@ -153,19 +151,18 @@ class TestQuestionAnswersRequest:
 
 ### Service Layer Tests
 
-`tests/unit/services/test_perplexity_service.py`:
+`tests/unit/services/test_gemini_service.py`:
 
 ```python
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-import aiohttp
-from app.services.perplexity_service import PerplexityService, SearchResult
+from app.services.gemini_service import GeminiService, SearchResult
 
-class TestPerplexityService:
+class TestGeminiService:
     
     @pytest.fixture
     def service(self):
-        return PerplexityService()
+        return GeminiService()
     
     @pytest.fixture
     def mock_successful_response(self):
@@ -184,11 +181,8 @@ class TestPerplexityService:
         """Test successful parallel search"""
         queries = ["일본 여행 팁", "도쿄 맛집"]
         
-        with patch('aiohttp.ClientSession.post') as mock_post:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=mock_successful_response)
-            mock_post.return_value.__aenter__.return_value = mock_response
+        with patch('app.services.gemini_service.gemini_service._call_gemini_api') as mock_gemini:
+            mock_gemini.return_value = '{"tips": ["일본 여행 팁"], "contacts": [], "links": [], "price": null, "location": null}'
             
             results = await service.parallel_search(queries)
             

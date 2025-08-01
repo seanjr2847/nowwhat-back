@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.schemas.questions import QuestionAnswersRequest, QuestionAnswersResponse, AnswerItemSchema
 from app.services.gemini_service import gemini_service
-from app.services.perplexity_service import perplexity_service
 from app.crud.session import validate_session_basic, save_user_answers_to_session
 from app.models.database import Checklist, ChecklistItem, ChecklistItemDetails, User
 from app.services.details_extractor import details_extractor
@@ -178,7 +177,7 @@ class ChecklistOrchestrator:
             logger.info("📝 검색 쿼리 생성 중...")
             
             # 체크리스트 아이템 기반으로 검색 쿼리 생성
-            search_queries = perplexity_service.generate_search_queries_from_checklist(
+            search_queries = gemini_service.generate_search_queries_from_checklist(
                 checklist_items,
                 request.goal,
                 answers_dict
@@ -189,10 +188,10 @@ class ChecklistOrchestrator:
                 return []
             
             logger.info(f"✅ 검색 쿼리 생성 완료: {len(search_queries)}개")
-            logger.info("🚀 Perplexity 병렬 검색 실행 중...")
+            logger.info("🚀 Gemini 병렬 검색 실행 중...")
             
             # 병렬 검색 실행
-            search_results = await perplexity_service.parallel_search(search_queries)
+            search_results = await gemini_service.parallel_search(search_queries)
             
             # 결과 분석
             success_count = sum(1 for r in search_results if r.success)
@@ -753,7 +752,7 @@ class ChecklistOrchestrator:
                         links=details_data.get("links"),
                         price=details_data.get("price"),
                         location=details_data.get("location"),
-                        search_source="perplexity"
+                        search_source="gemini"
                     )
                     db.add(item_details)
                     
