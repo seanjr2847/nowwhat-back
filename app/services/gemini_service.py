@@ -331,17 +331,20 @@ class GeminiService:
                 
                 logger.debug("Using Google Search grounding tool with structured output")
                 
+                # SearchResponse를 JSON Schema로 변환
+                response_schema = SearchResponse.model_json_schema()
+                
                 response = await asyncio.to_thread(
                     self.model.generate_content,
                     prompt,
                     tools=[search_tool],
                     generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=4096,
+                        max_output_tokens=8192,
                         temperature=0.7,
                         top_p=0.8,
                         top_k=40,
                         response_mime_type="application/json",
-                        response_schema=SearchResponse
+                        response_schema=response_schema
                     )
                 )
                 
@@ -349,6 +352,7 @@ class GeminiService:
                 
             except Exception as tool_error:
                 logger.warning(f"Google Search grounding failed: {tool_error}")
+                logger.debug(f"Error type: {type(tool_error).__name__}")
                 logger.info("Trying alternative Google Search implementation")
                 
                 try:
@@ -360,17 +364,20 @@ class GeminiService:
                         google_search_retrieval={}
                     )
                     
+                    # SearchResponse를 JSON Schema로 변환
+                    response_schema = SearchResponse.model_json_schema()
+                    
                     response = await asyncio.to_thread(
                         self.model.generate_content,
                         prompt,
                         tools=[search_tool],
                         generation_config=genai.types.GenerationConfig(
-                            max_output_tokens=4096,
+                            max_output_tokens=8192,
                             temperature=0.7,
                             top_p=0.8,
                             top_k=40,
                             response_mime_type="application/json",
-                            response_schema=SearchResponse
+                            response_schema=response_schema
                         )
                     )
                     
@@ -381,16 +388,19 @@ class GeminiService:
                     # 웹 검색을 사용할 수 없는 경우, 최신 정보 요청 프롬프트 + Structured Output
                     enhanced_prompt = get_enhanced_knowledge_prompt(prompt)
 
+                    # SearchResponse를 JSON Schema로 변환
+                    response_schema = SearchResponse.model_json_schema()
+                    
                     response = await asyncio.to_thread(
                         self.model.generate_content,
                         enhanced_prompt,
                         generation_config=genai.types.GenerationConfig(
-                            max_output_tokens=4096,
+                            max_output_tokens=8192,
                             temperature=0.7,
                             top_p=0.8,
                             top_k=40,
                             response_mime_type="application/json",
-                            response_schema=SearchResponse
+                            response_schema=response_schema
                         )
                     )
             
@@ -448,7 +458,7 @@ class GeminiService:
                 self.model.generate_content, 
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=4096,  # 더 큰 증가
+                    max_output_tokens=8192,  # 체크리스트 생성을 위해 더 큰 토큰 수 설정
                     temperature=0.7,
                     top_p=0.8,
                     top_k=40
