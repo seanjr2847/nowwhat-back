@@ -140,10 +140,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "구체적인 질문 (목표와 의도에 맞게)",
     "type": "multiple|text",
     "options": [  // multiple인 경우만
-      {{{"id": "opt_1", "text": "선택지1", "value": "value1"}}},
-      {{{"id": "opt_2", "text": "선택지2", "value": "value2"}}},
-      {{{"id": "opt_3", "text": "선택지3", "value": "value3"}}},
-      {{{"id": "opt_4", "text": "선택지4", "value": "value4"}}}
+      {{"id": "opt_1", "text": "선택지1", "value": "value1"}},
+      {{"id": "opt_2", "text": "선택지2", "value": "value2"}},
+      {{"id": "opt_3", "text": "선택지3", "value": "value3"}},
+      {{"id": "opt_4", "text": "선택지4", "value": "value4"}}
     ],
     "placeholder": "답변 가이드", // text인 경우만
     "required": true|false
