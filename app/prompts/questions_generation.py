@@ -64,7 +64,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 ### 4단계: 질문 타입 결정
 - 표준화 가능한 답변은 single choice
 - 개인차가 큰 답변은 text input
-- 표준화 개인차 둘 다 애매할 경우우 답변은 multiple choice
+- 표준화 개인차 둘 다 애매할 경우 답변은 multiple choice
 
 ### 5단계: 국가별 조정
 - 해당 국가의 특수성 반영
@@ -129,8 +129,9 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 - **경제적 맥락**: 현지 물가와 경제 수준 반영
 
 ## 질문 유형 선택 기준
-- **multiple**: 표준화된 범주가 있고, 대부분 사용자가 비슷한 선택을 하는 경우
+- **single**: 표준화된 범주가 있고, 대부분 사용자가 비슷한 선택을 하는 경우
 - **text**: 개인차가 크거나, 구체적인 정보가 필요한 경우
+- **multiple**: 표준화된 범주가 있고, 개인차가 큰 경우
 
 ## 출력 형식
 ```json
