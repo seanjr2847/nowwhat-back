@@ -1,4 +1,16 @@
-"""의도 분석을 위한 Gemini 프롬프트"""
+"""의도 분석을 위한 Gemini 프롬프트와 응답 형식"""
+import json
+from typing import Dict, List, Optional
+from pydantic import BaseModel
+
+# 응답 스키마 정의
+class IntentOption(BaseModel):
+    title: str
+    description: str
+    icon: str
+
+class IntentAnalysisResponse(BaseModel):
+    intents: List[IntentOption]
 
 def get_intent_analysis_prompt(goal: str, country_info: str = "") -> str:
     """의도 분석용 프롬프트 생성"""
@@ -285,4 +297,5 @@ def get_intent_analysis_prompt(goal: str, country_info: str = "") -> str:
 - 위 5단계를 거쳐 신중하게 선택지를 생성하세요
 - 정확히 4개의 선택지만 생성하고, 각 선택지가 4가지 분류 기준에 맞게 하나씩 배치되도록 하세요
 - description은 반드시 구체적인 선택 옵션을 2-3개 이상 포함해야 합니다
-- 사용자가 즉시 선택할 수 있는 명확한 옵션을 제시하세요"""
+- 사용자가 즉시 선택할 수 있는 명확한 옵션을 제시하세요
+- 정확히 4개의 선택지만 생성하세요"""

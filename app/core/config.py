@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Gemini API 설정
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    MAX_CONCURRENT_SEARCHES: int = int(os.getenv("MAX_CONCURRENT_SEARCHES", "5"))
+    MAX_CONCURRENT_SEARCHES: int = int(os.getenv("MAX_CONCURRENT_SEARCHES", "15"))
     SEARCH_TIMEOUT_SECONDS: int = int(os.getenv("SEARCH_TIMEOUT_SECONDS", "15"))
     
     # CORS 설정
@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # 레이트 리미팅 설정
     RATE_LIMIT_CALLS: int = int(os.getenv("RATE_LIMIT_CALLS", "100"))
     RATE_LIMIT_PERIOD: int = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
+    
+    # 체크리스트 생성 설정
+    MIN_CHECKLIST_ITEMS: int = int(os.getenv("MIN_CHECKLIST_ITEMS", "8"))
+    MAX_CHECKLIST_ITEMS: int = int(os.getenv("MAX_CHECKLIST_ITEMS", "15"))
     
     
     class Config:

@@ -1,4 +1,23 @@
-"""질문 생성을 위한 Gemini 프롬프트"""
+"""질문 생성을 위한 Gemini 프롬프트와 응답 형식"""
+import json
+from typing import Dict, List, Optional
+from pydantic import BaseModel
+
+# 응답 스키마 정의
+class QuestionOption(BaseModel):
+    id: str
+    text: str
+    value: str
+
+class QuestionResponse(BaseModel):
+    id: str
+    text: str
+    type: str
+    options: List[QuestionOption]
+    required: bool
+
+class QuestionsListResponse(BaseModel):
+    questions: List[QuestionResponse]
 
 def get_questions_generation_prompt(goal: str, intent_title: str, user_country: str, country_context: str) -> str:
     """질문 생성용 프롬프트 생성"""
@@ -39,4 +58,4 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
   }}
 ]
 
-중요: 정확히 3-5개만 생성하고, 유효한 JSON 형식으로 응답하세요."""
+중요: 정확히 3-5개만 생성하세요."""

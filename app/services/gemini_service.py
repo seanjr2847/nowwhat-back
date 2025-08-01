@@ -5,7 +5,11 @@ import google.generativeai as genai
 from app.core.config import settings
 from app.schemas.nowwhat import IntentOption
 from app.schemas.questions import Question, Option
-from app.services.prompt_loader import prompt_loader
+from app.prompts.intent_analysis import get_intent_analysis_prompt, IntentAnalysisResponse
+from app.prompts.search_prompts import get_search_prompt, SearchResponse
+from app.prompts.checklist_prompts import ChecklistResponse
+from app.prompts.questions_generation import get_questions_generation_prompt, QuestionsListResponse
+from app.prompts.enhanced_prompts import get_enhanced_knowledge_prompt
 import logging
 import uuid
 from dataclasses import dataclass
@@ -16,22 +20,7 @@ logger = logging.getLogger(__name__)
 # Gemini 서비스 디버깅을 위해 임시로 DEBUG 레벨 설정
 logger.setLevel(logging.DEBUG)
 
-# Pydantic 모델들 (Structured Output용)
-class ContactInfo(BaseModel):
-    name: str
-    phone: Optional[str] = None
-    email: Optional[str] = None
-
-class LinkInfo(BaseModel):
-    title: str
-    url: str
-
-class SearchResponse(BaseModel):
-    tips: List[str]
-    contacts: List[ContactInfo]
-    links: List[LinkInfo]
-    price: Optional[str] = None
-    location: Optional[str] = None
+# Pydantic 모델들은 이제 프롬프트 파일에서 import
 
 @dataclass
 class SearchResult:
@@ -132,10 +121,10 @@ class GeminiService:
         """질문 생성용 프롬프트 생성"""
         country_context = self._get_country_context(user_country)
         
-        return prompt_loader.get_questions_generation_prompt(
+        return get_questions_generation_prompt(
             goal=goal,
             intent_title=intent_title,
-            user_country=user_country,
+            user_country=user_country or "정보 없음",
             country_context=country_context
         )
 
@@ -325,7 +314,8 @@ class GeminiService:
     
     def _create_prompt(self, goal: str, user_country: Optional[str] = None) -> str:
         """Gemini API용 프롬프트 생성"""
-        return prompt_loader.get_intent_analysis_prompt(goal, user_country)
+        country_info = f"사용자 거주 국가: {user_country}" if user_country else ""
+        return get_intent_analysis_prompt(goal, country_info)
 
     async def _call_gemini_api_with_search(self, prompt: str) -> str:
         """Gemini API 호출 (공식 Google Search 기능 사용)"""
@@ -389,15 +379,7 @@ class GeminiService:
                     logger.info("Using enhanced knowledge-based prompt")
                     
                     # 웹 검색을 사용할 수 없는 경우, 최신 정보 요청 프롬프트 + Structured Output
-                    enhanced_prompt = f"""
-                    {prompt}
-                    
-                    중요 지시사항:
-                    - 가능한 한 최신 정보와 실제 존재하는 리소스를 제공해주세요
-                    - 실제 웹사이트 URL, 연락처, 가격 범위 등 구체적인 정보를 포함해주세요
-                    - 2024년 기준의 최신 동향과 정보를 반영해주세요
-                    - 한국 시장과 환경에 맞는 정보를 우선적으로 제공해주세요
-                    """
+                    enhanced_prompt = get_enhanced_knowledge_prompt(prompt)
 
                     response = await asyncio.to_thread(
                         self.model.generate_content,
@@ -614,18 +596,32 @@ class GeminiService:
         if len(queries) > 5:
             logger.info(f"   ... 그 외 {len(queries) - 5}개 더")
         
-        # 최대 동시 검색 수 제한 (Gemini API 제한 고려)
-        max_concurrent_searches = 5
-        limited_queries = queries[:max_concurrent_searches]
-        if len(queries) > max_concurrent_searches:
-            logger.warning(f"⚠️  쿼리 수 제한: {len(queries)} → {len(limited_queries)}개")
+        # 체크리스트 아이템 수에 맞게 모든 쿼리 처리 (API 제한 고려)
+        max_concurrent_searches = min(len(queries), settings.MAX_CONCURRENT_SEARCHES)
+        limited_queries = queries  # 모든 쿼리를 처리하되 배치로 나누어 실행
+        
+        if len(queries) > settings.MAX_CONCURRENT_SEARCHES:
+            logger.info(f"📦 {len(queries)}개 쿼리를 {settings.MAX_CONCURRENT_SEARCHES}개씩 배치로 처리")
+        else:
+            logger.info(f"✅ {len(queries)}개 쿼리 모두 병렬 처리")
         
         try:
-            logger.info(f"⚡ {len(limited_queries)}개 쿼리 병렬 실행 중...")
+            logger.info(f"⚡ {len(limited_queries)}개 쿼리 실행 중...")
             
-            # 병렬 검색 실행
-            tasks = [self._search_single_query(query) for query in limited_queries]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 모든 쿼리를 배치로 나누어 병렬 처리
+            all_results = []
+            batch_size = settings.MAX_CONCURRENT_SEARCHES
+            
+            for i in range(0, len(limited_queries), batch_size):
+                batch_queries = limited_queries[i:i+batch_size]
+                logger.info(f"🔄 배치 {i//batch_size + 1}: {len(batch_queries)}개 쿼리 처리 중...")
+                
+                # 배치별 병렬 검색 실행
+                tasks = [self._search_single_query(query) for query in batch_queries]
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                all_results.extend(batch_results)
+            
+            results = all_results
             
             # 예외 처리 및 결과 정리
             processed_results = []
@@ -692,22 +688,7 @@ class GeminiService:
         
         try:
             # Gemini에게 웹 검색을 통한 최신 정보를 요청하는 프롬프트 생성 (Structured Output 사용)
-            prompt = f"""다음 주제에 대해 최신 정보를 웹에서 검색하여 한국어로 구체적이고 실용적인 정보를 제공해주세요: "{query}"
-
-웹 검색을 통해 다음 정보들을 찾아서 제공해주세요:
-
-1. **실용적인 팁들**: 이 주제와 관련된 구체적이고 실행 가능한 조언들
-2. **연락처 정보**: 관련 서비스나 기관의 실제 연락처 (이름, 전화번호, 이메일)
-3. **유용한 링크**: 참고할 만한 웹사이트나 리소스 (제목과 URL)
-4. **가격 정보**: 관련 비용이나 예산 범위
-5. **위치 정보**: 관련 장소나 지역 정보
-
-중요 요구사항:
-- 반드시 "{query}" 주제와 직접 관련된 최신 정보만 제공하세요
-- 실제 존재하는 웹사이트 URL과 연락처를 우선적으로 제공하세요
-- 2024년 기준의 최신 동향과 정보를 반영하세요
-- 한국 시장과 환경에 맞는 정보를 우선하세요
-- 정보가 없는 항목은 비워두세요"""
+            prompt = get_search_prompt(query)
 
             # Gemini API 호출 (웹 검색 활성화)
             response = await self._call_gemini_api_with_search(prompt)

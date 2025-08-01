@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.questions import QuestionAnswersRequest, QuestionAnswersResponse, AnswerItemSchema
 from app.services.gemini_service import gemini_service
+from app.prompts.checklist_prompts import get_checklist_generation_prompt
 from app.crud.session import validate_session_basic, save_user_answers_to_session
 from app.models.database import Checklist, ChecklistItem, ChecklistItemDetails, User
 from app.services.details_extractor import details_extractor
@@ -22,8 +23,8 @@ class ChecklistOrchestrator:
     """체크리스트 생성을 위한 전체 워크플로우 오케스트레이션"""
     
     def __init__(self):
-        self.min_checklist_items = 8
-        self.max_checklist_items = 15
+        self.min_checklist_items = settings.MIN_CHECKLIST_ITEMS
+        self.max_checklist_items = settings.MAX_CHECKLIST_ITEMS
         
     async def process_answers_to_checklist(
         self,
@@ -139,10 +140,10 @@ class ChecklistOrchestrator:
             answer_context = self._format_answers_for_ai(request.answers)
             
             # Gemini에 체크리스트 생성 요청
-            prompt = self._create_checklist_prompt(
-                request.goal, 
-                request.selectedIntent, 
-                answer_context
+            prompt = get_checklist_generation_prompt(
+                goal=request.goal,
+                intent_title=request.selectedIntent,
+                answer_context=answer_context
             )
             
             # AI 호출 (기존 gemini_service 활용)
@@ -231,49 +232,6 @@ class ChecklistOrchestrator:
             logger.error(f"   스택 트레이스: {traceback.format_exc()}")
             return []
     
-    def _create_checklist_prompt(
-        self, 
-        goal: str, 
-        intent_title: str, 
-        answer_context: str
-    ) -> str:
-        """체크리스트 생성용 프롬프트 생성"""
-        
-        return f"""당신은 개인 맞춤형 체크리스트 생성 전문가입니다.
-
-사용자 정보:
-- 목표: "{goal}"
-- 선택한 의도: "{intent_title}"
-- 답변 내용: {answer_context}
-
-위 정보를 바탕으로 사용자가 목표를 달성하기 위한 체계적인 체크리스트를 생성하세요.
-
-체크리스트 생성 규칙:
-1. **구체적 키워드 포함**: 각 항목에 검색 가능한 구체적 키워드를 포함하세요
-   - 나쁜 예: "준비하기" → 좋은 예: "교재 구매하고 학습 계획 세우기"
-   - 나쁜 예: "확인하기" → 좋은 예: "온라인 강의 플랫폼 비교 및 선택하기"
-
-2. **실행 가능한 액션**: 사용자가 즉시 행동할 수 있는 구체적 단계
-   - 구매, 예약, 신청, 다운로드, 연락, 방문, 등록 등 명확한 동사 사용
-   - 브랜드명, 서비스명, 가격, 기간 등 구체적 정보 포함
-
-3. **검색 친화적 표현**: 온라인에서 찾을 수 있는 정보와 연결되는 표현
-   - "무료 언어 학습 앱 추천" → "듀오링고 앱 다운로드 및 학습 목표 설정"
-   - "예산 계획" → "언어 학습 예산 월 5-10만원 범위에서 계획 수립"
-
-4. **시간적 순서**: {self.min_checklist_items}개 이상 {self.max_checklist_items}개 이하로 시간 순서대로 배열
-
-5. **답변 반영**: 사용자의 구체적 답변(예산, 기간, 방식, 파트너 등)을 각 항목에 자연스럽게 반영
-
-응답 형식:
-- 각 항목을 새 줄로 구분
-- 번호나 불릿 포인트 없이 순수 텍스트만
-- 예시:
-  "학습할 언어와 목표 수준을 구체적으로 결정하고 3개월 학습 계획 수립하기"
-  "파트너와 함께 사용할 언어 학습 앱 또는 온라인 강의 플랫폼 선택하기"
-  "월 예산 범위 내에서 교재 구매 및 필요한 학습 도구 준비하기"
-
-중요: 실제 온라인에서 검색했을 때 관련 정보, 팁, 추천사항을 쉽게 찾을 수 있도록 검색 키워드가 풍부한 체크리스트를 만드세요."""
     
     async def _call_gemini_for_checklist(self, prompt: str) -> List[str]:
         """Gemini API 호출하여 체크리스트 생성"""
