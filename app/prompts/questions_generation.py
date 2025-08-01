@@ -62,8 +62,9 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 - 상황 파악 → 목표 구체화 → 자원 확인 → 제약 식별 순서 고려
 
 ### 4단계: 질문 타입 결정
-- 표준화 가능한 답변은 multiple choice
+- 표준화 가능한 답변은 single choice
 - 개인차가 큰 답변은 text input
+- 표준화 개인차 둘 다 애매할 경우우 답변은 multiple choice
 
 ### 5단계: 국가별 조정
 - 해당 국가의 특수성 반영
