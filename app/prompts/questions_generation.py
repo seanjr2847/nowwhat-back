@@ -1,9 +1,8 @@
 """질문 생성을 위한 Gemini 프롬프트와 응답 형식"""
-import json
-from typing import Dict, List, Optional
+from typing import List
 from pydantic import BaseModel
 
-# 응답 스키마 정의
+
 class QuestionOption(BaseModel):
     id: str
     text: str
@@ -19,7 +18,10 @@ class QuestionResponse(BaseModel):
 class QuestionsListResponse(BaseModel):
     questions: List[QuestionResponse]
 
-def get_questions_generation_prompt(goal: str, intent_title: str, user_country: str, country_context: str) -> str:
+
+def get_questions_generation_prompt(
+    goal: str, intent_title: str, user_country: str, country_context: str
+) -> str:
     """질문 생성용 프롬프트 생성"""
     return f"""# 범용 체크리스트 질문 생성 프롬프트
 
@@ -42,7 +44,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 - **기본 원칙**: 3-10개 범위 내에서 목표 복잡도에 따라 조절
 - **최소 3개**: 의미 있는 체크리스트 생성을 위한 최소 정보
 - **최대 10개**: 사용자 피로도를 고려한 실용적 상한선
-- **권장사항**: 
+- **권장사항**:
   - 대부분의 목표는 4-7개가 적절
   - 꼭 필요한 정보만 수집
   - 사용자가 지치지 않도록 고려
@@ -155,7 +157,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 ## 다양한 도메인 예시
 
 ### 예시 1: 창업 (창작/구축형)
-**입력**: 
+**입력**:
 - goal: "온라인 쇼핑몰 시작하고 싶어"
 - intent_title: "사업 모델 구체화"
 - user_country: "한국"
