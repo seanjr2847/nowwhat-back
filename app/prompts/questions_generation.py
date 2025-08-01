@@ -136,7 +136,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 ## 출력 형식
 ```json
 [
-  {
+  {{
     "id": "q_001",
     "text": "구체적인 질문 (목표와 의도에 맞게)",
     "type": "multiple|text",
@@ -148,7 +148,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     ],
     "placeholder": "답변 가이드", // text인 경우만
     "required": true|false
-  }
+  }}
 ]
 ```
 
