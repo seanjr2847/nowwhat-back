@@ -163,14 +163,14 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 **출력**:
 ```json
 [
-  {
+  {{
     "id": "q_001",
     "text": "어떤 제품을 판매할 계획이신가요?",
     "type": "text",
     "placeholder": "예: 수제 액세서리, 해외 직구 상품, 디지털 콘텐츠 등",
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_002",
     "text": "초기 투자 가능한 자본금은 어느 정도인가요?",
     "type": "multiple",
@@ -181,8 +181,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "1000만원 이상", "value": "over_10m"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_003",
     "text": "언제까지 첫 매출을 목표로 하시나요?",
     "type": "multiple",
@@ -193,8 +193,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "1년 내", "value": "1year"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_004",
     "text": "온라인 판매 경험이나 관련 지식이 있으신가요?",
     "type": "multiple",
@@ -205,7 +205,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "충분한 경험", "value": "experienced"}}
     ],
     "required": true
-  }
+  }}
 ]
 ```
 
@@ -218,7 +218,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 **출력**:
 ```json
 [
-  {
+  {{
     "id": "q_001",
     "text": "현재 식습관에서 가장 개선이 필요한 부분은 무엇인가요?",
     "type": "multiple",
@@ -229,15 +229,15 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "영양 불균형", "value": "unbalanced"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_002",
     "text": "목표 감량 체중과 기간은 어떻게 되나요?",
     "type": "text",
     "placeholder": "예: 3개월 동안 5kg 감량",
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_003",
     "text": "식단 조절에 영향을 줄 수 있는 환경적 요인이 있나요?",
     "type": "multiple",
@@ -248,7 +248,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "특별한 제약 없음", "value": "no_constraints"}}
     ],
     "required": true
-  }
+  }}
 ]
 ```
 
@@ -261,14 +261,14 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 **출력**:
 ```json
 [
-  {
+  {{
     "id": "q_001",
     "text": "어떤 분야로 이직을 준비하시나요?",
     "type": "text",
     "placeholder": "예: Backend Developer, UI/UX Designer, Marketing Manager 등",
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_002",
     "text": "현재 경력은 어느 정도 되시나요?",
     "type": "multiple",
@@ -279,8 +279,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "Senior (7년+)", "value": "senior"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_003",
     "text": "포트폴리오에 포함할 수 있는 프로젝트나 성과가 있나요?",
     "type": "multiple",
@@ -291,8 +291,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "5개 이상", "value": "many"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_004",
     "text": "목표 연봉 범위는 어떻게 되나요?",
     "type": "multiple",
@@ -303,8 +303,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "$180k+", "value": "180k_plus"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_005",
     "text": "언제까지 이직을 완료하고 싶으신가요?",
     "type": "multiple",
@@ -315,7 +315,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "구체적 계획 없음", "value": "flexible"}}
     ],
     "required": true
-  }
+  }}
 ]
 ```
 
@@ -328,7 +328,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 **출력**:
 ```json
 [
-  {
+  {{
     "id": "q_001",
     "text": "어떤 이민 프로그램을 고려하고 계신가요?",
     "type": "multiple",
@@ -339,8 +339,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "아직 모르겠음", "value": "undecided"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_002",
     "text": "영어 능력 시험(IELTS/CELPIP) 점수가 있으신가요?",
     "type": "multiple",
@@ -351,15 +351,15 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "아직 없음", "value": "none"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_003",
     "text": "현재 직업과 경력은 어떻게 되시나요?",
     "type": "text",
     "placeholder": "예: 소프트웨어 개발자 5년, 간호사 3년 등",
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_004",
     "text": "학력은 어떻게 되시나요?",
     "type": "multiple",
@@ -370,8 +370,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "박사", "value": "phd"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_005",
     "text": "가족 구성은 어떻게 되나요?",
     "type": "multiple",
@@ -382,8 +382,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "기타", "value": "other"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_006",
     "text": "이민 준비 예산은 어느 정도 되시나요?",
     "type": "multiple",
@@ -394,8 +394,8 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "1억 이상", "value": "over_100m"}}
     ],
     "required": true
-  },
-  {
+  }},
+  {{
     "id": "q_007",
     "text": "언제까지 이민을 완료하고 싶으신가요?",
     "type": "multiple",
@@ -406,7 +406,7 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
       {{"id": "opt_4", "text": "장기 계획", "value": "long_term"}}
     ],
     "required": true
-  }
+  }}
 ]
 ```
 
@@ -426,8 +426,6 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
 □ 중복되거나 불필요한 질문은 없는가?
 
 ---
-
-사용자 입력: {goal}, {intent_title}, {user_country}, {country_context}
 
 **응답 생성 과정**:
 1. 목표와 의도를 분석하여 도메인 식별
