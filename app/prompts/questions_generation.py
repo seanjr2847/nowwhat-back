@@ -139,10 +139,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "구체적인 질문 (목표와 의도에 맞게)",
     "type": "multiple|text",
     "options": [  // multiple인 경우만
-      {"id": "opt_1", "text": "선택지1", "value": "value1"},
-      {"id": "opt_2", "text": "선택지2", "value": "value2"},
-      {"id": "opt_3", "text": "선택지3", "value": "value3"},
-      {"id": "opt_4", "text": "선택지4", "value": "value4"}
+      {{{"id": "opt_1", "text": "선택지1", "value": "value1"}}},
+      {{{"id": "opt_2", "text": "선택지2", "value": "value2"}}},
+      {{{"id": "opt_3", "text": "선택지3", "value": "value3"}}},
+      {{{"id": "opt_4", "text": "선택지4", "value": "value4"}}}
     ],
     "placeholder": "답변 가이드", // text인 경우만
     "required": true|false
@@ -173,10 +173,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "초기 투자 가능한 자본금은 어느 정도인가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "100만원 미만", "value": "under_1m"},
-      {"id": "opt_2", "text": "100-500만원", "value": "1m_5m"},
-      {"id": "opt_3", "text": "500-1000만원", "value": "5m_10m"},
-      {"id": "opt_4", "text": "1000만원 이상", "value": "over_10m"}
+      {{"id": "opt_1", "text": "100만원 미만", "value": "under_1m"}},
+      {{"id": "opt_2", "text": "100-500만원", "value": "1m_5m"}},
+      {{"id": "opt_3", "text": "500-1000만원", "value": "5m_10m"}},
+      {{"id": "opt_4", "text": "1000만원 이상", "value": "over_10m"}}
     ],
     "required": true
   },
@@ -185,10 +185,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "언제까지 첫 매출을 목표로 하시나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "1개월 내", "value": "1month"},
-      {"id": "opt_2", "text": "3개월 내", "value": "3months"},
-      {"id": "opt_3", "text": "6개월 내", "value": "6months"},
-      {"id": "opt_4", "text": "1년 내", "value": "1year"}
+      {{"id": "opt_1", "text": "1개월 내", "value": "1month"}},
+      {{"id": "opt_2", "text": "3개월 내", "value": "3months"}},
+      {{"id": "opt_3", "text": "6개월 내", "value": "6months"}},
+      {{"id": "opt_4", "text": "1년 내", "value": "1year"}}
     ],
     "required": true
   },
@@ -197,10 +197,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "온라인 판매 경험이나 관련 지식이 있으신가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "전혀 없음", "value": "none"},
-      {"id": "opt_2", "text": "기초 지식만", "value": "basic"},
-      {"id": "opt_3", "text": "일부 경험 있음", "value": "some"},
-      {"id": "opt_4", "text": "충분한 경험", "value": "experienced"}
+      {{"id": "opt_1", "text": "전혀 없음", "value": "none"}},
+      {{"id": "opt_2", "text": "기초 지식만", "value": "basic"}},
+      {{"id": "opt_3", "text": "일부 경험 있음", "value": "some"}},
+      {{"id": "opt_4", "text": "충분한 경험", "value": "experienced"}}
     ],
     "required": true
   }
@@ -221,10 +221,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "현재 식습관에서 가장 개선이 필요한 부분은 무엇인가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "과식/폭식", "value": "overeating"},
-      {"id": "opt_2", "text": "야식/간식", "value": "snacking"},
-      {"id": "opt_3", "text": "불규칙한 식사", "value": "irregular"},
-      {"id": "opt_4", "text": "영양 불균형", "value": "unbalanced"}
+      {{"id": "opt_1", "text": "과식/폭식", "value": "overeating"}},
+      {{"id": "opt_2", "text": "야식/간식", "value": "snacking"}},
+      {{"id": "opt_3", "text": "불규칙한 식사", "value": "irregular"}},
+      {{"id": "opt_4", "text": "영양 불균형", "value": "unbalanced"}}
     ],
     "required": true
   },
@@ -240,10 +240,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "식단 조절에 영향을 줄 수 있는 환경적 요인이 있나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "직장인(외식 잦음)", "value": "office_worker"},
-      {"id": "opt_2", "text": "교대근무", "value": "shift_work"},
-      {"id": "opt_3", "text": "가족과 식사", "value": "family_meals"},
-      {"id": "opt_4", "text": "특별한 제약 없음", "value": "no_constraints"}
+      {{"id": "opt_1", "text": "직장인(외식 잦음)", "value": "office_worker"}},
+      {{"id": "opt_2", "text": "교대근무", "value": "shift_work"}},
+      {{"id": "opt_3", "text": "가족과 식사", "value": "family_meals"}},
+      {{"id": "opt_4", "text": "특별한 제약 없음", "value": "no_constraints"}}
     ],
     "required": true
   }
@@ -271,10 +271,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "현재 경력은 어느 정도 되시나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "Entry Level (0-1년)", "value": "entry"},
-      {"id": "opt_2", "text": "Junior (1-3년)", "value": "junior"},
-      {"id": "opt_3", "text": "Mid-level (3-7년)", "value": "mid"},
-      {"id": "opt_4", "text": "Senior (7년+)", "value": "senior"}
+      {{"id": "opt_1", "text": "Entry Level (0-1년)", "value": "entry"}},
+      {{"id": "opt_2", "text": "Junior (1-3년)", "value": "junior"}},
+      {{"id": "opt_3", "text": "Mid-level (3-7년)", "value": "mid"}},
+      {{"id": "opt_4", "text": "Senior (7년+)", "value": "senior"}}
     ],
     "required": true
   },
@@ -283,10 +283,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "포트폴리오에 포함할 수 있는 프로젝트나 성과가 있나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "없음(새로 만들어야 함)", "value": "none"},
-      {"id": "opt_2", "text": "1-2개", "value": "few"},
-      {"id": "opt_3", "text": "3-5개", "value": "some"},
-      {"id": "opt_4", "text": "5개 이상", "value": "many"}
+      {{"id": "opt_1", "text": "없음(새로 만들어야 함)", "value": "none"}},
+      {{"id": "opt_2", "text": "1-2개", "value": "few"}},
+      {{"id": "opt_3", "text": "3-5개", "value": "some"}},
+      {{"id": "opt_4", "text": "5개 이상", "value": "many"}}
     ],
     "required": true
   },
@@ -295,10 +295,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "목표 연봉 범위는 어떻게 되나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "$50k-80k", "value": "50k_80k"},
-      {"id": "opt_2", "text": "$80k-120k", "value": "80k_120k"},
-      {"id": "opt_3", "text": "$120k-180k", "value": "120k_180k"},
-      {"id": "opt_4", "text": "$180k+", "value": "180k_plus"}
+      {{"id": "opt_1", "text": "$50k-80k", "value": "50k_80k"}},
+      {{"id": "opt_2", "text": "$80k-120k", "value": "80k_120k"}},
+      {{"id": "opt_3", "text": "$120k-180k", "value": "120k_180k"}},
+      {{"id": "opt_4", "text": "$180k+", "value": "180k_plus"}}
     ],
     "required": true
   },
@@ -307,10 +307,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "언제까지 이직을 완료하고 싶으신가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "1개월 내", "value": "1month"},
-      {"id": "opt_2", "text": "3개월 내", "value": "3months"},
-      {"id": "opt_3", "text": "6개월 내", "value": "6months"},
-      {"id": "opt_4", "text": "구체적 계획 없음", "value": "flexible"}
+      {{"id": "opt_1", "text": "1개월 내", "value": "1month"}},
+      {{"id": "opt_2", "text": "3개월 내", "value": "3months"}},
+      {{"id": "opt_3", "text": "6개월 내", "value": "6months"}},
+      {{"id": "opt_4", "text": "구체적 계획 없음", "value": "flexible"}}
     ],
     "required": true
   }
@@ -331,10 +331,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "어떤 이민 프로그램을 고려하고 계신가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "기술이민(Express Entry)", "value": "express_entry"},
-      {"id": "opt_2", "text": "주정부 이민(PNP)", "value": "pnp"},
-      {"id": "opt_3", "text": "투자이민", "value": "investment"},
-      {"id": "opt_4", "text": "아직 모르겠음", "value": "undecided"}
+      {{"id": "opt_1", "text": "기술이민(Express Entry)", "value": "express_entry"}},
+      {{"id": "opt_2", "text": "주정부 이민(PNP)", "value": "pnp"}},
+      {{"id": "opt_3", "text": "투자이민", "value": "investment"}},
+      {{"id": "opt_4", "text": "아직 모르겠음", "value": "undecided"}}
     ],
     "required": true
   },
@@ -343,10 +343,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "영어 능력 시험(IELTS/CELPIP) 점수가 있으신가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "있음(CLB 7 이상)", "value": "high"},
-      {"id": "opt_2", "text": "있음(CLB 7 미만)", "value": "medium"},
-      {"id": "opt_3", "text": "준비 중", "value": "preparing"},
-      {"id": "opt_4", "text": "아직 없음", "value": "none"}
+      {{"id": "opt_1", "text": "있음(CLB 7 이상)", "value": "high"}},
+      {{"id": "opt_2", "text": "있음(CLB 7 미만)", "value": "medium"}},
+      {{"id": "opt_3", "text": "준비 중", "value": "preparing"}},
+      {{"id": "opt_4", "text": "아직 없음", "value": "none"}}
     ],
     "required": true
   },
@@ -362,10 +362,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "학력은 어떻게 되시나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "고졸 이하", "value": "high_school"},
-      {"id": "opt_2", "text": "전문학사/학사", "value": "bachelor"},
-      {"id": "opt_3", "text": "석사", "value": "master"},
-      {"id": "opt_4", "text": "박사", "value": "phd"}
+      {{"id": "opt_1", "text": "고졸 이하", "value": "high_school"}},
+      {{"id": "opt_2", "text": "전문학사/학사", "value": "bachelor"}},
+      {{"id": "opt_3", "text": "석사", "value": "master"}},
+      {{"id": "opt_4", "text": "박사", "value": "phd"}}
     ],
     "required": true
   },
@@ -374,10 +374,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "가족 구성은 어떻게 되나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "독신", "value": "single"},
-      {"id": "opt_2", "text": "부부", "value": "couple"},
-      {"id": "opt_3", "text": "부부+자녀", "value": "family"},
-      {"id": "opt_4", "text": "기타", "value": "other"}
+      {{"id": "opt_1", "text": "독신", "value": "single"}},
+      {{"id": "opt_2", "text": "부부", "value": "couple"}},
+      {{"id": "opt_3", "text": "부부+자녀", "value": "family"}},
+      {{"id": "opt_4", "text": "기타", "value": "other"}}
     ],
     "required": true
   },
@@ -386,10 +386,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "이민 준비 예산은 어느 정도 되시나요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "3천만원 미만", "value": "under_30m"},
-      {"id": "opt_2", "text": "3천-5천만원", "value": "30m_50m"},
-      {"id": "opt_3", "text": "5천만원-1억", "value": "50m_100m"},
-      {"id": "opt_4", "text": "1억 이상", "value": "over_100m"}
+      {{"id": "opt_1", "text": "3천만원 미만", "value": "under_30m"}},
+      {{"id": "opt_2", "text": "3천-5천만원", "value": "30m_50m"}},
+      {{"id": "opt_3", "text": "5천만원-1억", "value": "50m_100m"}},
+      {{"id": "opt_4", "text": "1억 이상", "value": "over_100m"}}
     ],
     "required": true
   },
@@ -398,10 +398,10 @@ def get_questions_generation_prompt(goal: str, intent_title: str, user_country: 
     "text": "언제까지 이민을 완료하고 싶으신가요?",
     "type": "multiple",
     "options": [
-      {"id": "opt_1", "text": "1년 내", "value": "1year"},
-      {"id": "opt_2", "text": "2년 내", "value": "2years"},
-      {"id": "opt_3", "text": "3년 내", "value": "3years"},
-      {"id": "opt_4", "text": "장기 계획", "value": "long_term"}
+      {{"id": "opt_1", "text": "1년 내", "value": "1year"}},
+      {{"id": "opt_2", "text": "2년 내", "value": "2years"}},
+      {{"id": "opt_3", "text": "3년 내", "value": "3years"}},
+      {{"id": "opt_4", "text": "장기 계획", "value": "long_term"}}
     ],
     "required": true
   }
