@@ -383,6 +383,7 @@ class GeminiService:
                     
                 except Exception as alt_error:
                     logger.warning(f"Alternative Google Search failed: {alt_error}")
+                    logger.debug(f"Alternative error type: {type(alt_error).__name__}")
                     logger.info("Using enhanced knowledge-based prompt")
                     
                     # 웹 검색을 사용할 수 없는 경우, 최신 정보 요청 프롬프트 + Structured Output
@@ -446,6 +447,7 @@ class GeminiService:
             
         except Exception as e:
             logger.error(f"Gemini search API call error: {str(e)}")
+            logger.debug(f"Final error type: {type(e).__name__}")
             # 웹 검색 실패시 일반 API로 폴백
             logger.info("Falling back to regular Gemini API without search")
             return await self._call_gemini_api(prompt)
