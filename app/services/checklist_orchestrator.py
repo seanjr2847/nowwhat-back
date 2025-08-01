@@ -12,6 +12,7 @@ from app.crud.session import validate_session_basic, save_user_answers_to_sessio
 from app.models.database import Checklist, ChecklistItem, ChecklistItemDetails, User
 from app.services.details_extractor import details_extractor
 from app.core.database import get_db
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
