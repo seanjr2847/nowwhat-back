@@ -699,8 +699,9 @@ class GeminiService:
         logger.debug(f"🔍 단일 검색 시작: '{query[:50]}...'")
         
         try:
-            # Gemini에게 웹 검색을 통한 최신 정보를 요청하는 프롬프트 생성 (Structured Output 사용)
+            # 체크리스트 아이템에 대한 구체적인 프롬프트 생성 (Structured Output 사용)
             prompt = get_search_prompt(query)
+            logger.debug(f"📝 생성된 프롬프트 길이: {len(prompt)}자")
 
             # Gemini API 호출 (웹 검색 활성화)
             response = await self._call_gemini_api_with_search(prompt)
@@ -803,238 +804,43 @@ class GeminiService:
         goal: str,
         answers: List[Dict[str, Any]]
     ) -> List[str]:
-        """체크리스트 아이템 기반으로 검색 쿼리 생성 (Perplexity와 동일한 인터페이스)"""
+        """체크리스트 아이템을 직접 검색 쿼리로 사용 (1:1 매핑)"""
         
         logger.info("🎯 GEMINI 검색 쿼리 생성 시작")
         logger.info(f"   📋 체크리스트 아이템: {len(checklist_items)}개")
         logger.info(f"   🎯 목표: {goal[:50]}...")
         logger.info(f"   💬 답변: {len(answers)}개")
         
-        # 답변에서 핵심 컨텍스트 추출
-        answer_context = self._extract_answer_context(answers)
-        logger.info(f"   🔍 추출된 컨텍스트: '{answer_context[:80]}...' ({len(answer_context)}자)")
-        
+        # 체크리스트 아이템을 직접 검색 쿼리로 사용 (키워드 추출 없이)
         search_queries = []
         
-        # 각 체크리스트 아이템을 기반으로 1:1 검색 쿼리 생성
-        logger.info(f"   📝 1:1 매핑으로 처리할 아이템: {len(checklist_items)}개")
+        logger.info(f"   📝 체크리스트 아이템을 직접 검색 쿼리로 사용")
         
         for i, item in enumerate(checklist_items):
-            logger.debug(f"   🔍 아이템 {i+1} 처리: '{item[:50]}...'")
+            logger.debug(f"   🔍 아이템 {i+1}: '{item[:50]}...'")
             
-            # 아이템에서 핵심 키워드 추출
-            core_keywords = self._extract_core_keywords_from_item(item)
-            logger.debug(f"      키워드: {core_keywords}")
-            
-            if core_keywords:
-                # 단일 검색 쿼리 생성 (1:1 매핑)
-                queries = self._generate_item_specific_queries(core_keywords, answer_context)
-                logger.debug(f"      생성된 쿼리: {queries}")
-                search_queries.extend(queries)  # 이제 항상 1개만 추가됨
-            else:
-                # 키워드 추출 실패시 기본 쿼리 생성
-                fallback_query = f"{item[:20]} 방법"
-                search_queries.append(fallback_query)
-                logger.warning(f"      ⚠️  키워드 추출 실패 → 기본 쿼리: '{fallback_query}'")
+            # 체크리스트 아이템을 그대로 검색 쿼리로 사용
+            # 개선된 프롬프트에서 이 아이템에 대한 구체적인 정보를 요청
+            search_queries.append(item)
+            logger.debug(f"      → 검색 쿼리: '{item}'")
         
-        # 중복 제거하지 않고 순서 유지 (1:1 매핑을 위해)
-        unique_queries = search_queries  # 중복 제거 없이 모든 쿼리 유지
+        logger.info("=" * 60)
+        logger.info("📝 체크리스트 아이템 → 검색 쿼리 매핑")
+        logger.info("=" * 60)
+        for i, item in enumerate(checklist_items):
+            logger.info(f"   {i+1:2d}. '{item[:40]}...'")
+        logger.info("=" * 60)
         
-        logger.info("=" * 50)
-        logger.info("📝 1:1 매핑 검색 쿼리 목록")
-        logger.info("=" * 50)
-        for i, (item, query) in enumerate(zip(checklist_items, unique_queries)):
-            logger.info(f"   {i+1:2d}. '{item[:30]}...' → '{query}'")
-        logger.info("=" * 50)
+        logger.info(f"✅ 1:1 매핑 완료: {len(checklist_items)}개 아이템 → {len(search_queries)}개 쿼리")
         
-        logger.info(f"✅ 1:1 쿼리 생성 완료: {len(checklist_items)}개 아이템 → {len(unique_queries)}개 쿼리")
-        
-        if not unique_queries:
+        if not search_queries:
             logger.error("🚨 생성된 검색 쿼리가 없습니다!")
-            logger.error("   체크리스트 아이템에서 키워드 추출이 실패했을 수 있습니다.")
-        elif len(unique_queries) != len(checklist_items):
-            logger.warning(f"⚠️  쿼리 수 불일치: {len(checklist_items)}개 아이템 vs {len(unique_queries)}개 쿼리")
+            logger.error("   체크리스트 아이템이 비어있을 수 있습니다.")
+        elif len(search_queries) != len(checklist_items):
+            logger.warning(f"⚠️  쿼리 수 불일치: {len(checklist_items)}개 아이템 vs {len(search_queries)}개 쿼리")
         
-        return unique_queries
+        return search_queries
     
-    def _extract_core_keywords_from_item(self, item: str) -> List[str]:
-        """체크리스트 아이템에서 검색에 유용한 핵심 키워드 추출 (개선된 버전)"""
-        import re
-        
-        logger.debug(f"키워드 추출 대상: '{item}'")
-        
-        # 확장된 불용어 리스트
-        stopwords = [
-            '을', '를', '이', '가', '은', '는', '의', '에', '에서', '와', '과',
-            '하기', '하세요', '합니다', '위한', '위해', '통해', '대한', '함께',
-            '있는', '있다', '되는', '되다', '같은', '같이', '모든', '각각',
-            '검색', '찾기', '확인', '준비', '방법', '추천', '또는', '주변'  # 일반적인 단어들 제외
-        ]
-        
-        # 우선순위 키워드 패턴 (구체적인 것들)
-        priority_patterns = [
-            # 구체적인 서비스/도구
-            r'(?:화상|온라인|모바일)?(?:영어|중국어|일본어|스페인어|프랑스어)(?:앱|어플|수업|강의|교재)',
-            r'(?:홈|실내|헬스|피트니스)?(?:트레이닝|운동|요가|필라테스)(?:앱|어플|기구|매트)',
-            r'(?:월세|전세|부동산|렌트)?(?:계약|임대|중개|관리)(?:사이트|앱|업체)',
-            r'(?:투자|재테크|주식|펀드|적금)(?:앱|플랫폼|상품|계좌)',
-            
-            # 구체적인 물건/재료
-            r'[가-힣]{2,}(?:재료|도구|장비|기구|용품|제품)',
-            r'[가-힣]{2,}(?:카드|계좌|보험|통장)',
-            r'[가-힣]{2,}(?:비자|여권|항공편|숙박)',
-            
-            # 구체적인 서비스/기관
-            r'[가-힣]{2,}(?:병원|클리닉|센터|학원|학교)',
-            r'[가-힣]{2,}(?:은행|증권|보험사|카드사)',
-            
-            # 구체적인 활동
-            r'[가-힣]{2,}(?:시험|자격증|면접|상담)',
-            r'[가-힣]{2,}(?:여행|투어|관광|맛집)',
-        ]
-        
-        keywords = []
-        
-        # 1. 우선순위 패턴으로 구체적 키워드 추출
-        for pattern in priority_patterns:
-            matches = re.findall(pattern, item)
-            for match in matches:
-                if match not in keywords:
-                    keywords.append(match)
-                    logger.debug(f"  우선순위 키워드: '{match}'")
-        
-        # 2. 영어 키워드 추출 (브랜드명, 서비스명 등)
-        english_words = re.findall(r'[A-Za-z]{3,}', item)
-        for word in english_words:
-            if word.lower() not in ['and', 'the', 'for', 'app'] and word not in keywords:
-                keywords.append(word)
-                logger.debug(f"  영어 키워드: '{word}'")
-        
-        # 3. 한글 명사 추출 (3글자 이상, 불용어 제외)
-        korean_words = re.findall(r'[가-힣]{3,}', item)
-        for word in korean_words:
-            if word not in stopwords and word not in keywords:
-                # 의미있는 명사인지 추가 검증
-                if self._is_meaningful_keyword(word):
-                    keywords.append(word)
-                    logger.debug(f"  한글 키워드: '{word}'")
-        
-        # 4. 숫자 포함 키워드 (예: 2인실, 3개월 등)
-        number_keywords = re.findall(r'\d+[가-힣]{1,3}', item)
-        for keyword in number_keywords:
-            if keyword not in keywords:
-                keywords.append(keyword)
-                logger.debug(f"  숫자 키워드: '{keyword}'")
-        
-        # 5. 최종 키워드 정제 및 순서 조정
-        final_keywords = []
-        
-        # 우선순위: 구체적 키워드 > 영어 키워드 > 한글 키워드 > 숫자 키워드
-        for keyword in keywords:
-            if len(final_keywords) >= 4:  # 최대 4개로 제한
-                break
-            if len(keyword) >= 2 and keyword not in final_keywords:
-                final_keywords.append(keyword)
-        
-        logger.debug(f"  최종 키워드: {final_keywords}")
-        return final_keywords
-    
-    def _is_meaningful_keyword(self, word: str) -> bool:
-        """키워드가 검색에 의미있는지 판단"""
-        # 너무 일반적이거나 추상적인 단어들 제외
-        generic_words = [
-            '계획', '준비', '확인', '방법', '추천', '정보', '조사',
-            '선택', '결정', '고려', '검토', '점검', '관리', '진행',
-            '완료', '달성', '성공', '실패', '문제', '해결', '개선',
-            '시작', '마무리', '체크', '리스트', '목록', '항목'
-        ]
-        
-        return word not in generic_words and len(word) >= 2
-    
-    def _generate_item_specific_queries(self, keywords: List[str], context: str = "") -> List[str]:
-        """키워드를 기반으로 단일 검색 쿼리 생성 (1:1 매핑)"""
-        if not keywords:
-            return []
-        
-        main_keyword = keywords[0]
-        additional_keywords = " ".join(keywords[1:2]) if len(keywords) > 1 else ""
-        
-        # 가장 적절한 단일 쿼리 생성
-        if additional_keywords:
-            primary_query = f"{main_keyword} {additional_keywords} 방법 추천"
-        else:
-            primary_query = f"{main_keyword} 방법 추천"
-        
-        # 컨텍스트가 있으면 개인화 (더 구체적인 쿼리 선호)
-        if context and len(context) > 5:
-            context_short = context[:30]  # 너무 길지 않게
-            contextual_query = f"{main_keyword} {context_short} 추천"
-            return [contextual_query]  # 컨텍스트가 있으면 이를 우선
-        
-        return [primary_query]  # 아이템당 정확히 1개 쿼리
-    
-    def _extract_answer_context(self, answers: List[Dict[str, Any]]) -> str:
-        """답변에서 검색에 유용한 컨텍스트 추출 (유연한 방식)"""
-        meaningful_answers = []
-        
-        for answer_item in answers:
-            answer = answer_item.get("answer", "")
-            
-            if isinstance(answer, list):
-                answer = " ".join(answer)
-            
-            # 의미있는 답변 필터링 (일반적인 조건들)
-            if self._is_meaningful_answer(answer):
-                meaningful_answers.append(answer.strip())
-        
-        # 답변 길이와 구체성을 기준으로 정렬 (긴 답변이 더 구체적일 가능성)
-        meaningful_answers.sort(key=len, reverse=True)
-        
-        # 상위 답변들을 조합 (최대 3개)
-        selected_answers = meaningful_answers[:3]
-        final_context = " ".join(selected_answers)
-        
-        # 검색 쿼리에 적합한 길이로 조정
-        if len(final_context) > 120:
-            final_context = final_context[:117] + "..."
-        
-        return final_context
-    
-    def _is_meaningful_answer(self, answer: str) -> bool:
-        """답변이 의미있는 컨텍스트인지 판단"""
-        if not answer or len(answer.strip()) < 2:
-            return False
-        
-        answer = answer.strip()
-        
-        # 명백히 의미없는 답변들 제외
-        meaningless_patterns = [
-            # 단일 문자나 기호
-            r'^[ㄱ-ㅎㅏ-ㅣ]$',  # 단일 한글 자음/모음
-            r'^[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]$',  # 단일 특수문자
-            r'^\d+$',  # 숫자만
-            # 무의미한 반복
-            r'^(.)\1{2,}$',  # 같은 문자 3번 이상 반복
-            # 임시/빈 답변 패턴
-            r'^(없음|없다|모름|잘모름|해당없음|패스)$',
-            r'^(.|_|-|\s)*$',  # 특수문자나 공백만
-        ]
-        
-        import re
-        for pattern in meaningless_patterns:
-            if re.match(pattern, answer, re.IGNORECASE):
-                return False
-        
-        # 최소 길이 체크 (너무 짧은 답변 제외)
-        if len(answer) < 3:
-            return False
-        
-        # 의미있는 단어가 포함되어 있는지 체크
-        meaningful_chars = re.findall(r'[가-힣a-zA-Z0-9]', answer)
-        if len(meaningful_chars) < 2:
-            return False
-        
-        return True
     
     def _create_gemini_compatible_schema(self) -> Dict[str, Any]:
         """Gemini API 호환 JSON Schema 생성 (SearchResponse를 기반으로)"""
