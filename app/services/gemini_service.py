@@ -364,8 +364,8 @@ class GeminiService:
                         google_search_retrieval={}
                     )
                     
-                    # SearchResponse를 JSON Schema로 변환
-                    response_schema = SearchResponse.model_json_schema()
+                    # Gemini 호환 스키마 사용
+                    response_schema = self._create_gemini_compatible_schema()
                     
                     response = await asyncio.to_thread(
                         self.model.generate_content,
@@ -389,8 +389,8 @@ class GeminiService:
                     # 웹 검색을 사용할 수 없는 경우, 최신 정보 요청 프롬프트 + Structured Output
                     enhanced_prompt = get_enhanced_knowledge_prompt(prompt)
 
-                    # SearchResponse를 JSON Schema로 변환
-                    response_schema = SearchResponse.model_json_schema()
+                    # Gemini 호환 스키마 사용
+                    response_schema = self._create_gemini_compatible_schema()
                     
                     response = await asyncio.to_thread(
                         self.model.generate_content,
