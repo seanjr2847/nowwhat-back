@@ -331,8 +331,8 @@ class GeminiService:
                 
                 logger.debug("Using Google Search grounding tool with structured output")
                 
-                # SearchResponse를 JSON Schema로 변환
-                response_schema = SearchResponse.model_json_schema()
+                # SearchResponse를 Gemini 호환 스키마로 변환
+                response_schema = self._create_gemini_compatible_schema()
                 
                 response = await asyncio.to_thread(
                     self.model.generate_content,
@@ -858,38 +858,98 @@ class GeminiService:
         return unique_queries
     
     def _extract_core_keywords_from_item(self, item: str) -> List[str]:
-        """체크리스트 아이템에서 검색에 유용한 핵심 키워드 추출"""
+        """체크리스트 아이템에서 검색에 유용한 핵심 키워드 추출 (개선된 버전)"""
         import re
         
-        # 불용어 제거
+        logger.debug(f"키워드 추출 대상: '{item}'")
+        
+        # 확장된 불용어 리스트
         stopwords = [
             '을', '를', '이', '가', '은', '는', '의', '에', '에서', '와', '과',
-            '하기', '하세요', '합니다', '위한', '위해', '통해', '대한', '함께'
+            '하기', '하세요', '합니다', '위한', '위해', '통해', '대한', '함께',
+            '있는', '있다', '되는', '되다', '같은', '같이', '모든', '각각',
+            '검색', '찾기', '확인', '준비', '방법', '추천', '또는', '주변'  # 일반적인 단어들 제외
         ]
         
-        # 명사형 키워드 우선 추출
-        noun_patterns = [
-            r'[가-힣]{2,}(?:앱|어플|플랫폼|서비스|사이트)',  # 서비스 관련
-            r'[가-힣]{2,}(?:교재|책|자료|가이드)',  # 학습 자료
-            r'[가-힣]{2,}(?:계획|일정|스케줄)',  # 계획 관련
-            r'[가-힣]{2,}(?:예산|비용|가격|돈)',  # 비용 관련
-            r'[가-힣]{2,}(?:방법|방식|팁|노하우)',  # 방법 관련
+        # 우선순위 키워드 패턴 (구체적인 것들)
+        priority_patterns = [
+            # 구체적인 서비스/도구
+            r'(?:화상|온라인|모바일)?(?:영어|중국어|일본어|스페인어|프랑스어)(?:앱|어플|수업|강의|교재)',
+            r'(?:홈|실내|헬스|피트니스)?(?:트레이닝|운동|요가|필라테스)(?:앱|어플|기구|매트)',
+            r'(?:월세|전세|부동산|렌트)?(?:계약|임대|중개|관리)(?:사이트|앱|업체)',
+            r'(?:투자|재테크|주식|펀드|적금)(?:앱|플랫폼|상품|계좌)',
+            
+            # 구체적인 물건/재료
+            r'[가-힣]{2,}(?:재료|도구|장비|기구|용품|제품)',
+            r'[가-힣]{2,}(?:카드|계좌|보험|통장)',
+            r'[가-힣]{2,}(?:비자|여권|항공편|숙박)',
+            
+            # 구체적인 서비스/기관
+            r'[가-힣]{2,}(?:병원|클리닉|센터|학원|학교)',
+            r'[가-힣]{2,}(?:은행|증권|보험사|카드사)',
+            
+            # 구체적인 활동
+            r'[가-힣]{2,}(?:시험|자격증|면접|상담)',
+            r'[가-힣]{2,}(?:여행|투어|관광|맛집)',
         ]
         
         keywords = []
         
-        # 특수 패턴 먼저 추출
-        for pattern in noun_patterns:
+        # 1. 우선순위 패턴으로 구체적 키워드 추출
+        for pattern in priority_patterns:
             matches = re.findall(pattern, item)
-            keywords.extend(matches)
+            for match in matches:
+                if match not in keywords:
+                    keywords.append(match)
+                    logger.debug(f"  우선순위 키워드: '{match}'")
         
-        # 일반 명사 추출 (2글자 이상)
-        words = re.findall(r'[가-힣a-zA-Z]{2,}', item)
-        for word in words:
-            if word not in stopwords and word not in keywords:
+        # 2. 영어 키워드 추출 (브랜드명, 서비스명 등)
+        english_words = re.findall(r'[A-Za-z]{3,}', item)
+        for word in english_words:
+            if word.lower() not in ['and', 'the', 'for', 'app'] and word not in keywords:
                 keywords.append(word)
+                logger.debug(f"  영어 키워드: '{word}'")
         
-        return keywords[:5]  # 상위 5개 키워드
+        # 3. 한글 명사 추출 (3글자 이상, 불용어 제외)
+        korean_words = re.findall(r'[가-힣]{3,}', item)
+        for word in korean_words:
+            if word not in stopwords and word not in keywords:
+                # 의미있는 명사인지 추가 검증
+                if self._is_meaningful_keyword(word):
+                    keywords.append(word)
+                    logger.debug(f"  한글 키워드: '{word}'")
+        
+        # 4. 숫자 포함 키워드 (예: 2인실, 3개월 등)
+        number_keywords = re.findall(r'\d+[가-힣]{1,3}', item)
+        for keyword in number_keywords:
+            if keyword not in keywords:
+                keywords.append(keyword)
+                logger.debug(f"  숫자 키워드: '{keyword}'")
+        
+        # 5. 최종 키워드 정제 및 순서 조정
+        final_keywords = []
+        
+        # 우선순위: 구체적 키워드 > 영어 키워드 > 한글 키워드 > 숫자 키워드
+        for keyword in keywords:
+            if len(final_keywords) >= 4:  # 최대 4개로 제한
+                break
+            if len(keyword) >= 2 and keyword not in final_keywords:
+                final_keywords.append(keyword)
+        
+        logger.debug(f"  최종 키워드: {final_keywords}")
+        return final_keywords
+    
+    def _is_meaningful_keyword(self, word: str) -> bool:
+        """키워드가 검색에 의미있는지 판단"""
+        # 너무 일반적이거나 추상적인 단어들 제외
+        generic_words = [
+            '계획', '준비', '확인', '방법', '추천', '정보', '조사',
+            '선택', '결정', '고려', '검토', '점검', '관리', '진행',
+            '완료', '달성', '성공', '실패', '문제', '해결', '개선',
+            '시작', '마무리', '체크', '리스트', '목록', '항목'
+        ]
+        
+        return word not in generic_words and len(word) >= 2
     
     def _generate_item_specific_queries(self, keywords: List[str], context: str = "") -> List[str]:
         """키워드를 기반으로 단일 검색 쿼리 생성 (1:1 매핑)"""
@@ -975,6 +1035,71 @@ class GeminiService:
             return False
         
         return True
+    
+    def _create_gemini_compatible_schema(self) -> Dict[str, Any]:
+        """Gemini API 호환 JSON Schema 생성 (SearchResponse를 기반으로)"""
+        # Gemini는 $defs와 $ref를 지원하지 않으므로 인라인 스키마로 변환
+        return {
+            "type": "object",
+            "properties": {
+                "tips": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "실용적인 팁과 조언"
+                },
+                "contacts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "연락처 이름"
+                            },
+                            "phone": {
+                                "type": "string",
+                                "description": "전화번호"
+                            },
+                            "email": {
+                                "type": "string",
+                                "description": "이메일 주소"
+                            }
+                        },
+                        "required": ["name"]
+                    },
+                    "description": "관련 연락처 정보"
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "링크 제목"
+                            },
+                            "url": {
+                                "type": "string",
+                                "description": "웹사이트 URL"
+                            }
+                        },
+                        "required": ["title", "url"]
+                    },
+                    "description": "유용한 웹사이트 링크"
+                },
+                "price": {
+                    "type": "string",
+                    "description": "예상 비용 또는 가격 정보"
+                },
+                "location": {
+                    "type": "string", 
+                    "description": "위치 또는 장소 정보"
+                }
+            },
+            "required": ["tips", "contacts", "links"]
+        }
 
 # 서비스 인스턴스
 gemini_service = GeminiService() 
