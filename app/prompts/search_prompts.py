@@ -1,5 +1,6 @@
 """검색 기능을 위한 Gemini 프롬프트와 응답 형식"""
 import json
+from datetime import datetime
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 
@@ -22,6 +23,7 @@ class SearchResponse(BaseModel):
 
 def get_search_prompt(checklist_item: str) -> str:
     """체크리스트 아이템 기반 웹 검색용 프롬프트 생성"""
+    current_year = datetime.now().year
     return f"""'{checklist_item}'에 대한 실용적인 정보를 웹에서 검색해서 제공해주세요.
 
 ## 요청사항
@@ -53,7 +55,7 @@ def get_search_prompt(checklist_item: str) -> str:
 - 지역별 차이가 있다면 주요 지역 정보
 
 ## 검색 및 응답 지침
-- 한국 시장 기준의 최신 정보 (2024-2025년)
+- 한국 시장 기준의 최신 정보 ({current_year}년)
 - 실제 존재하고 접속 가능한 링크만 제공
 - 구체적이고 실행 가능한 정보 우선
 - 광고성 내용보다는 실용적 가치 우선
