@@ -89,20 +89,19 @@ class GeminiService:
         intent_title: str, 
         user_country: Optional[str] = None
     ) -> List[Question]:
-        """선택된 의도에 따른 맞춤 질문 생성 (3-5개)"""
+        """선택된 의도에 따른 맞춤 질문 생성"""
         try:
             prompt = self._create_questions_prompt(goal, intent_title, user_country)
             
-            # 3회 재시도 로직
+            # 3회 재시도 로직 (API 호출 실패시에만)
             for attempt in range(3):
                 try:
                     response = await self._call_gemini_api(prompt)
                     questions = self._parse_questions_response(response)
                     
-                    if 3 <= len(questions) <= 5:
-                        return questions
-                    else:
-                        logger.warning(f"Gemini returned {len(questions)} questions instead of 3-5 (attempt {attempt + 1})")
+                    # 질문 개수에 관계없이 반환
+                    logger.info(f"Gemini returned {len(questions)} questions")
+                    return questions
                         
                 except Exception as e:
                     logger.error(f"Gemini questions API call failed (attempt {attempt + 1}): {str(e)}")
