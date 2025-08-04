@@ -7,7 +7,7 @@ from app.core.config import settings
 class ChecklistResponse(BaseModel):
     items: List[str]
 
-def get_checklist_generation_prompt(goal: str, intent_title: str, answer_context: str, min_items: int = None, max_items: int = None) -> str:
+def get_checklist_generation_prompt(goal: str, intent_title: str, answer_context: str, user_country: str = None, user_language: str = None, min_items: int = None, max_items: int = None) -> str:
     """체크리스트 생성용 프롬프트 생성"""
     return f"""당신은 개인 맞춤형 체크리스트 생성 전문가입니다. 사용자의 목표 달성을 위해 구체적이고 실행 가능한 체크리스트를 만드는 것이 전문입니다.
 
@@ -15,6 +15,8 @@ def get_checklist_generation_prompt(goal: str, intent_title: str, answer_context
 - 목표: "{goal}"
 - 선택한 의도: "{intent_title}"
 - 답변 내용: {answer_context}
+- 거주 국가: "{user_country or '정보 없음'}"
+- 사용 언어: "{user_language or '정보 없음'}"
 
 ## 핵심 원칙
 

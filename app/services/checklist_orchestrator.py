@@ -140,11 +140,13 @@ class ChecklistOrchestrator:
             # 답변 정보를 텍스트로 변환
             answer_context = self._format_answers_for_ai(request.answers)
             
-            # Gemini에 체크리스트 생성 요청
+            # Gemini에 체크리스트 생성 요청 (국가/언어 정보 포함)
             prompt = get_checklist_generation_prompt(
                 goal=request.goal,
                 intent_title=request.selectedIntent,
-                answer_context=answer_context
+                answer_context=answer_context,
+                user_country=request.userCountry,
+                user_language=request.userLanguage
             )
             
             # AI 호출 (기존 gemini_service 활용)

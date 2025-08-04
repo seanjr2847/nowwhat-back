@@ -8,7 +8,7 @@ from app.schemas.questions import (
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.services.gemini_service import gemini_service
-from app.utils.geo_utils import detect_country_from_ip, get_client_ip
+# Removed geo utils for performance optimization
 from app.crud.session import (
     validate_session_basic,
     save_question_set
@@ -33,18 +33,19 @@ async def generate_questions(
     
     비즈니스 흐름:
     1. 세션 유효성 검증 (sessionId)
-    2. 사용자 IP 기반 국가 자동 감지
-    3. Gemini API를 통한 맞춤 질문 생성 (goal + intentTitle 사용)
-    4. 질문 세트 ID 생성 및 DB 저장
-    5. 클라이언트 응답
+    2. Gemini API를 통한 맞춤 질문 생성 (goal + intentTitle 사용)
+    3. 질문 세트 ID 생성 및 DB 저장
+    4. 클라이언트 응답
     """
     try:
         # 요청에서 필수 정보 추출
         session_id = question_request.sessionId
         goal = question_request.goal
         intent_title = question_request.intentTitle
+        user_country = question_request.userCountry  # 프론트에서 전달, None 가능
+        user_language = question_request.userLanguage  # 프론트에서 전달, None 가능
         
-        logger.info(f"Question generation request - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}'")
+        logger.info(f"Question generation request - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}', Country: {user_country}, Language: {user_language}")
         
         # 1. 세션 유효성 검증 (의도 검증은 생략, 직접 전달받음)
         is_valid, db_session, error_message = validate_session_basic(
@@ -55,20 +56,15 @@ async def generate_questions(
             logger.warning(f"Session validation failed: {error_message}")
             raise HTTPException(status_code=400, detail=error_message)
         
-        # 2. 사용자 IP 기반 국가 감지
-        client_ip = get_client_ip(request)
-        user_country = await detect_country_from_ip(client_ip)
-        
-        logger.info(f"Detected country: {user_country} for IP: {client_ip}")
-        
-        # 3. Gemini API를 통한 맞춤 질문 생성 (직접 전달받은 정보 사용)
+        # 2. Gemini API를 통한 맞춤 질문 생성 (성능 최적화를 위해 국가 감지 제거)
         logger.info(f"Generating questions for goal: '{goal}', intent: '{intent_title}'")
         
         try:
             questions = await gemini_service.generate_questions(
                 goal=goal,
                 intent_title=intent_title,
-                user_country=user_country
+                user_country=user_country,
+                user_language=user_language
             )
             
             logger.info(f"Generated {len(questions)} questions via Gemini API")
@@ -79,7 +75,8 @@ async def generate_questions(
             questions = await gemini_service.generate_questions(
                 goal=goal,
                 intent_title=intent_title,
-                user_country=user_country
+                user_country=user_country,
+                user_language=user_language
             )
         
         # 4. 질문 검증 및 기본값 설정

@@ -6,6 +6,8 @@ class QuestionGenerateRequest(BaseModel):
     sessionId: str
     goal: str
     intentTitle: str
+    userCountry: Optional[str] = None  # 프론트에서 전달, 기본값 없음
+    userLanguage: Optional[str] = None  # 프론트에서 전달, 기본값 없음
 
 # Response models
 class Option(BaseModel):
@@ -48,6 +50,8 @@ class QuestionAnswersRequest(BaseModel):
     goal: str = Field(..., min_length=1, max_length=500, description="Initial user goal")
     selectedIntent: str = Field(..., min_length=1, description="Selected intent title (string for consistency)")
     answers: List[AnswerItemSchema] = Field(..., min_items=1, description="List of question answers")
+    userCountry: Optional[str] = None  # 프론트에서 전달, 기본값 없음
+    userLanguage: Optional[str] = None  # 프론트에서 전달, 기본값 없음
 
     class Config:
         schema_extra = {

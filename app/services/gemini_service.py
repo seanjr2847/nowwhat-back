@@ -87,11 +87,12 @@ class GeminiService:
         self, 
         goal: str, 
         intent_title: str, 
-        user_country: Optional[str] = None
+        user_country: Optional[str] = None,
+        user_language: Optional[str] = None
     ) -> List[Question]:
         """선택된 의도에 따른 맞춤 질문 생성"""
         try:
-            prompt = self._create_questions_prompt(goal, intent_title, user_country)
+            prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language)
             
             # 3회 재시도 로직 (API 호출 실패시에만)
             for attempt in range(3):
@@ -116,15 +117,18 @@ class GeminiService:
             logger.error(f"Question generation failed: {str(e)}")
             return self._get_cached_questions_template(intent_title)
 
-    def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None) -> str:
+    def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None, user_language: Optional[str] = None) -> str:
         """질문 생성용 프롬프트 생성"""
         country_context = self._get_country_context(user_country)
+        language_context = self._get_language_context(user_language)
         
         return get_questions_generation_prompt(
             goal=goal,
             intent_title=intent_title,
             user_country=user_country or "정보 없음",
-            country_context=country_context
+            user_language=user_language or "정보 없음",
+            country_context=country_context,
+            language_context=language_context
         )
 
     def _get_country_context(self, user_country: Optional[str]) -> str:
@@ -136,6 +140,18 @@ class GeminiService:
             "CN": "중국 거주자 기준, 중국 문화와 환경 고려"
         }
         return contexts.get(user_country, "글로벌 기준")
+
+    def _get_language_context(self, user_language: Optional[str]) -> str:
+        """언어별 맞춤 컨텍스트"""
+        contexts = {
+            "ko": "한국어 기준, 한국 문화적 맥락 고려",
+            "en": "English, Western cultural context",
+            "ja": "日本語、日本の文化的文脈を考慮",
+            "zh": "中文，中国文化背景考虑",
+            "es": "Español, contexto cultural hispano",
+            "fr": "Français, contexte culturel français"
+        }
+        return contexts.get(user_language, "다국어 지원")
 
     def _parse_questions_response(self, response: str) -> List[Question]:
         """Gemini 질문 응답 파싱"""

@@ -20,7 +20,8 @@ class QuestionsListResponse(BaseModel):
 
 
 def get_questions_generation_prompt(
-    goal: str, intent_title: str, user_country: str, country_context: str
+    goal: str, intent_title: str, user_country: str, user_language: str, 
+    country_context: str, language_context: str
 ) -> str:
     """질문 생성용 프롬프트 생성"""
     return f"""# 범용 체크리스트 질문 생성 프롬프트
@@ -34,7 +35,9 @@ def get_questions_generation_prompt(
 - 목표: "{goal}"
 - 선택한 의도: "{intent_title}"
 - 거주 국가: "{user_country}"
+- 사용 언어: "{user_language}"
 - 국가별 맞춤화: "{country_context}"
+- 언어별 맞춤화: "{language_context}"
 ```
 
 ## 작업
@@ -77,9 +80,10 @@ def get_questions_generation_prompt(
 - 개인차가 큰 답변은 text input
 - 표준화 개인차 둘 다 애매할 경우 답변은 multiple choice
 
-### 5단계: 국가별 조정
+### 5단계: 국가별/언어별 조정
 - 해당 국가의 특수성 반영
 - 현지 관습, 법규, 인프라 고려
+- 사용자 언어에 맞는 표현과 문화적 맥락 반영
 
 ### 6단계: 최종 검증
 - 질문들이 목표 달성에 직접적으로 도움이 되는지 확인
@@ -132,12 +136,14 @@ def get_questions_generation_prompt(
 3. **명확성**: 애매모호한 표현 지양, 구체적 선택지 제공
 4. **적응성**: 도메인과 의도에 맞는 맞춤형 질문
 
-## 국가별 맞춤화 가이드
+## 국가별/언어별 맞춤화 가이드
 - **법규/규제**: 해당 국가의 관련 법규나 제도 고려
 - **문화적 맥락**: 현지 관습과 선호도 반영
 - **인프라**: 이용 가능한 서비스나 시설 고려
 - **언어/용어**: 현지에서 통용되는 표현 사용
 - **경제적 맥락**: 현지 물가와 경제 수준 반영
+- **언어적 특성**: 사용자 언어의 특성과 표현 방식 고려
+- **문화적 소통**: 언어권별 소통 스타일과 예의 반영
 
 ## 질문 유형 선택 기준
 - **single**: 표준화된 범주가 있고, 대부분 사용자가 비슷한 선택을 하는 경우
@@ -432,7 +438,7 @@ def get_questions_generation_prompt(
 □ 질문이 목표 달성에 직접적으로 필요한가?
 □ 의도(intent_title)와 연관성이 있는가?
 □ 사용자가 명확히 이해하고 답할 수 있는가?
-□ 국가별 맞춤화가 적절히 반영되었는가?
+□ 국가별/언어별 맞춤화가 적절히 반영되었는가?
 □ 질문 순서가 논리적인가?
 □ 중복되거나 불필요한 질문은 없는가?
 
@@ -443,5 +449,5 @@ def get_questions_generation_prompt(
 2. 해당 도메인의 핵심 정보 요구사항 파악
 3. 목표 복잡도(상/중/하)를 평가하고 적절한 질문 개수 결정
 4. 우선순위에 따라 질문 배치
-5. 국가별 특성 반영하여 현지화
+5. 국가별/언어별 특성 반영하여 현지화
 6. 최종 JSON 형식으로 출력"""

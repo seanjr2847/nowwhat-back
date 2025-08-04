@@ -21,7 +21,7 @@ class SearchResponse(BaseModel):
     price: Optional[str] = None
     location: Optional[str] = None
 
-def get_search_prompt(checklist_item: str) -> str:
+def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None) -> str:
     """체크리스트 아이템 기반 웹 검색용 프롬프트 생성"""
     current_year = datetime.now().year
     return f"""'{checklist_item}'에 대한 실용적인 정보를 웹에서 검색해서 제공해주세요.
@@ -55,10 +55,12 @@ def get_search_prompt(checklist_item: str) -> str:
 - 지역별 차이가 있다면 주요 지역 정보
 
 ## 검색 및 응답 지침
-- 한국 시장 기준의 최신 정보 ({current_year}년)
+- {user_country or '한국'} 시장 기준의 최신 정보 ({current_year}년)
+- {user_language or '한국어'} 언어로 된 정보 우선 검색
 - 실제 존재하고 접속 가능한 링크만 제공
 - 구체적이고 실행 가능한 정보 우선
 - 광고성 내용보다는 실용적 가치 우선
 - 정보가 없는 항목은 빈 배열([])로 제공
+- 국가별/언어별 특성을 고려한 문화적으로 적절한 정보 제공
 
 검색 대상: "{checklist_item}"에 대한 실행 방법, 도구, 서비스, 가이드"""

@@ -12,7 +12,7 @@ class IntentOption(BaseModel):
 class IntentAnalysisResponse(BaseModel):
     intents: List[IntentOption]
 
-def get_intent_analysis_prompt(goal: str, country_info: str = "") -> str:
+def get_intent_analysis_prompt(goal: str, country_info: str = "", language_info: str = "") -> str:
     """의도 분석용 프롬프트 생성"""
     return f"""# 사용자 의도 파악을 위한 4가지 선택지 생성 프롬프트
 
@@ -260,6 +260,7 @@ def get_intent_analysis_prompt(goal: str, country_info: str = "") -> str:
 
 사용자 입력: "{goal}"
 {country_info}
+{language_info}
 
 **응답 생성 과정**:
 1. 먼저 사용자의 "{goal}"를 분석하여 의도와 상황을 파악합니다
