@@ -166,7 +166,7 @@ async def submit_answers(
     1. 요청 데이터 검증 (goal, selectedIntent, answers)
     2. 사용자 답변 데이터베이스 저장
     3. Gemini AI를 통한 기본 체크리스트 생성
-    4. Perplexity API를 통한 10개 병렬 검색 실행
+    4. Gemini API를 통한 체크리스트 갯수에 따른 병렬 검색 실행
     5. 검색 결과와 AI 생성 결과 병합 및 보강
     6. 최종 체크리스트 데이터베이스 저장
     7. 체크리스트 ID 및 리다이렉트 URL 반환
