@@ -5,10 +5,11 @@ import google.generativeai as genai
 from app.core.config import settings
 from app.schemas.nowwhat import IntentOption
 from app.schemas.questions import Question, Option
-from app.prompts.intent_analysis import get_intent_analysis_prompt, IntentAnalysisResponse
+from app.prompts.prompt_selector import (
+    get_intent_analysis_prompt, get_questions_generation_prompt, get_checklist_generation_prompt,
+    get_intent_analysis_response_class, get_questions_list_response_class, get_checklist_response_class
+)
 from app.prompts.search_prompts import get_search_prompt, SearchResponse
-from app.prompts.checklist_prompts import ChecklistResponse
-from app.prompts.questions_generation import get_questions_generation_prompt, QuestionsListResponse
 from app.prompts.enhanced_prompts import get_enhanced_knowledge_prompt
 import logging
 import uuid
@@ -57,7 +58,9 @@ class GeminiService:
     async def analyze_intent(self, goal: str, country_info: str = "", language_info: str = "") -> List[IntentOption]:
         """사용자 목표를 분석하여 4가지 의도 옵션 생성"""
         try:
-            prompt = self._create_prompt(goal, country_info, language_info)
+            # language_info에서 사용자 언어 추출
+            user_language = self._extract_user_language(language_info)
+            prompt = self._create_prompt(goal, country_info, language_info, user_language)
             
             # 3회 재시도 로직
             for attempt in range(3):
@@ -359,9 +362,20 @@ class GeminiService:
             )
         ]
     
-    def _create_prompt(self, goal: str, country_info: str = "", language_info: str = "") -> str:
+    def _create_prompt(self, goal: str, country_info: str = "", language_info: str = "", user_language: str = None) -> str:
         """Gemini API용 프롬프트 생성"""
-        return get_intent_analysis_prompt(goal, country_info, language_info)
+        return get_intent_analysis_prompt(goal, country_info, language_info, user_language)
+    
+    def _extract_user_language(self, language_info: str) -> str:
+        """language_info 문자열에서 사용자 언어 추출"""
+        if not language_info:
+            return None
+        
+        # "사용자 언어: ko" 형태에서 언어 코드 추출
+        if ":" in language_info:
+            return language_info.split(":")[-1].strip()
+        
+        return language_info.strip()
 
     async def _call_gemini_api_with_search(self, prompt: str) -> str:
         """Gemini API 호출 (공식 Google Search 기능 사용)"""
