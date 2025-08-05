@@ -7,7 +7,7 @@ from app.schemas.nowwhat import (
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.services.gemini_service import gemini_service
-from app.utils.geo_utils import detect_country_from_ip, get_client_ip
+# Removed geo utils for performance optimization
 from app.crud.session import (
     create_intent_session, 
     update_intent_session_with_intents
@@ -115,9 +115,9 @@ async def debug_analyze_intents(request: Request):
             logger.error(f"4. Database error: {db_error}")
             return {"error": f"Database error: {db_error}"}
         
-        # 5. IP 추출 테스트
+        # 5. IP 추출 테스트 (간단한 방식으로 변경)
         try:
-            client_ip = get_client_ip(request)
+            client_ip = request.client.host if request.client else "unknown"
             logger.info(f"5. Client IP: {client_ip}")
         except Exception as ip_error:
             logger.error(f"5. IP error: {ip_error}")
@@ -172,15 +172,15 @@ async def test_dependencies(request: Request, db: Session = Depends(get_db)):
             "error": str(e)
         }
     
-    # 3. IP 유틸리티 테스트
+    # 3. IP 추출 테스트 (간단한 방식으로 변경)
     try:
-        client_ip = get_client_ip(request)
-        results["geo_utils"] = {
+        client_ip = request.client.host if request.client else "unknown"
+        results["client_ip_test"] = {
             "status": "success",
             "client_ip": client_ip
         }
     except Exception as e:
-        results["geo_utils"] = {
+        results["client_ip_test"] = {
             "status": "error",
             "error": str(e)
         }
@@ -227,27 +227,29 @@ async def analyze_intents(
         
         logger.info("Step 1: Input validation completed")
         
-        # 2. 클라이언트 IP 추출 및 국가 감지
-        client_ip = get_client_ip(request)
-        logger.info(f"Step 2: Client IP extracted: {client_ip}")
+        # 2. 사용자 국가/언어 정보 (프론트에서 전달받음)
+        user_country = intent_request.userCountry
+        user_language = intent_request.userLanguage
+        logger.info(f"Step 2: User country: {user_country}, language: {user_language}")
         
-        user_country = await detect_country_from_ip(client_ip)
-        logger.info(f"Step 3: Country detected: {user_country}")
-        
-        # 3. 세션 생성 및 DB 저장
-        logger.info("Step 4: Creating intent session...")
+        # 3. 세션 생성 및 DB 저장 (IP 감지 제거로 성능 향상)
+        logger.info("Step 3: Creating intent session...")
+        client_ip = request.client.host if request.client else "unknown"
         db_session = create_intent_session(
             db=db,
             goal=goal,
             user_ip=client_ip,
-            user_country=user_country
+            user_country=user_country or "unknown"
         )
-        logger.info(f"Step 4: Intent session created with ID: {db_session.session_id}")
+        logger.info(f"Step 3: Intent session created with ID: {db_session.session_id}")
         
-        # 4. Gemini API를 통한 의도 분석
-        logger.info("Step 5: Calling Gemini API...")
-        intents = await gemini_service.analyze_intent(goal, user_country)
-        logger.info(f"Step 5: Gemini API returned {len(intents)} intents")
+        # 4. Gemini API를 통한 의도 분석 (국가/언어 정보 포함)
+        logger.info("Step 4: Calling Gemini API...")
+        country_info = f"사용자 거주 국가: {user_country}" if user_country else ""
+        language_info = f"사용자 언어: {user_language}" if user_language else ""
+        
+        intents = await gemini_service.analyze_intent(goal, country_info, language_info)
+        logger.info(f"Step 4: Gemini API returned {len(intents)} intents")
         
         # 5. 생성된 의도 옵션을 DB에 업데이트
         logger.info("Step 6: Updating session with intents...")

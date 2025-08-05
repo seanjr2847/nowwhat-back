@@ -54,10 +54,10 @@ class GeminiService:
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
         logger.info(f"GeminiService initialized with model: {settings.GEMINI_MODEL}")
         
-    async def analyze_intent(self, goal: str, user_country: Optional[str] = None) -> List[IntentOption]:
+    async def analyze_intent(self, goal: str, country_info: str = "", language_info: str = "") -> List[IntentOption]:
         """사용자 목표를 분석하여 4가지 의도 옵션 생성"""
         try:
-            prompt = self._create_prompt(goal, user_country)
+            prompt = self._create_prompt(goal, country_info, language_info)
             
             # 3회 재시도 로직
             for attempt in range(3):
@@ -116,6 +116,38 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Question generation failed: {str(e)}")
             return self._get_cached_questions_template(intent_title)
+
+    async def generate_questions_stream(
+        self, 
+        goal: str, 
+        intent_title: str, 
+        user_country: Optional[str] = None,
+        user_language: Optional[str] = None
+    ):
+        """선택된 의도에 따른 맞춤 질문 생성 (스트리밍 버전)"""
+        try:
+            prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language)
+            
+            logger.info(f"Starting streaming question generation for: {goal}")
+            
+            # Gemini 스트리밍 API 호출
+            async for chunk in self._call_gemini_api_stream(prompt):
+                yield chunk
+                
+        except Exception as e:
+            logger.error(f"Streaming question generation failed: {str(e)}")
+            # 에러 발생시 캐시된 템플릿을 스트리밍 형태로 반환
+            cached_questions = self._get_cached_questions_template(intent_title)
+            
+            # JSON 형태로 변환하여 스트리밍
+            import json
+            questions_json = json.dumps([q.dict() for q in cached_questions], ensure_ascii=False)
+            
+            # 문자별로 천천히 전송 (스트리밍 효과)
+            for i, char in enumerate(questions_json):
+                if i % 10 == 0:  # 10글자마다 약간의 지연
+                    await asyncio.sleep(0.01)
+                yield char
 
     def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None, user_language: Optional[str] = None) -> str:
         """질문 생성용 프롬프트 생성"""
@@ -327,10 +359,9 @@ class GeminiService:
             )
         ]
     
-    def _create_prompt(self, goal: str, user_country: Optional[str] = None) -> str:
+    def _create_prompt(self, goal: str, country_info: str = "", language_info: str = "") -> str:
         """Gemini API용 프롬프트 생성"""
-        country_info = f"사용자 거주 국가: {user_country}" if user_country else ""
-        return get_intent_analysis_prompt(goal, country_info)
+        return get_intent_analysis_prompt(goal, country_info, language_info)
 
     async def _call_gemini_api_with_search(self, prompt: str) -> str:
         """Gemini API 호출 (공식 Google Search 기능 사용)"""
@@ -537,6 +568,45 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Gemini API call error details: {str(e)}")
             raise Exception(f"Gemini API call failed: {str(e)}")
+    
+    async def _call_gemini_api_stream(self, prompt: str):
+        """Gemini API 스트리밍 호출"""
+        try:
+            logger.debug(f"Starting streaming request to Gemini (prompt length: {len(prompt)} chars)")
+            
+            # Gemini 스트리밍 설정
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=8192,
+                temperature=0.7,
+                top_p=0.8,
+                top_k=40
+            )
+            
+            # 스트리밍 응답 생성
+            response_stream = await asyncio.to_thread(
+                self.model.generate_content,
+                prompt,
+                generation_config=generation_config,
+                stream=True  # 스트리밍 활성화
+            )
+            
+            logger.debug("Gemini streaming response initiated")
+            
+            # 스트리밍 응답 처리
+            for chunk in response_stream:
+                if hasattr(chunk, 'text') and chunk.text:
+                    yield chunk.text
+                elif hasattr(chunk, 'candidates') and chunk.candidates:
+                    for candidate in chunk.candidates:
+                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    yield part.text
+                                    
+        except Exception as e:
+            logger.error(f"Gemini streaming API error: {str(e)}")
+            logger.debug(f"Error type: {type(e).__name__}")
+            raise Exception(f"Gemini streaming API failed: {str(e)}")
     
     def _parse_response(self, response: str) -> List[IntentOption]:
         """Gemini 응답 파싱"""

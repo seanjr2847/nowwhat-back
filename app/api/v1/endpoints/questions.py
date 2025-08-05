@@ -1,5 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+import json
+import asyncio
 from app.schemas.questions import (
     QuestionGenerateRequest, QuestionGenerateResponse, 
     Question, Option,
@@ -226,6 +229,97 @@ async def submit_answers(
             status_code=500, 
             detail="서버 내부 오류가 발생했습니다. 관리자에게 문의해주세요."
         )
+
+@router.post("/generate/stream")
+async def generate_questions_stream(
+    request: Request,
+    question_request: QuestionGenerateRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """선택된 의도에 따른 맞춤 질문 생성 (스트리밍 버전)
+    
+    Server-Sent Events (SSE) 형식으로 실시간 응답을 제공합니다.
+    """
+    try:
+        # 요청에서 필수 정보 추출
+        session_id = question_request.sessionId
+        goal = question_request.goal
+        intent_title = question_request.intentTitle
+        user_country = question_request.userCountry
+        user_language = question_request.userLanguage
+        
+        logger.info(f"Streaming question generation - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}'")
+        
+        # 1. 세션 유효성 검증
+        is_valid, db_session, error_message = validate_session_basic(db, session_id)
+        
+        if not is_valid:
+            logger.warning(f"Session validation failed: {error_message}")
+            
+            async def error_stream():
+                error_data = {"error": error_message, "status": "error"}
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                yield f"data: [DONE]\n\n"
+            
+            return StreamingResponse(
+                error_stream(),
+                media_type="text/plain",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "*"
+                }
+            )
+        
+        # 2. 스트리밍 응답 생성
+        async def question_stream():
+            try:
+                # 시작 신호
+                start_data = {"status": "started", "message": "질문 생성을 시작합니다..."}
+                yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
+                
+                # Gemini 스트리밍 호출
+                async for chunk in gemini_service.generate_questions_stream(
+                    goal=goal,
+                    intent_title=intent_title,
+                    user_country=user_country,
+                    user_language=user_language
+                ):
+                    chunk_data = {
+                        "status": "generating",
+                        "chunk": chunk,
+                        "timestamp": asyncio.get_event_loop().time()
+                    }
+                    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                
+                # 완료 신호
+                complete_data = {"status": "completed", "message": "질문 생성이 완료되었습니다."}
+                yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                yield f"data: [DONE]\n\n"
+                
+            except Exception as e:
+                logger.error(f"Streaming error: {str(e)}")
+                error_data = {"status": "error", "error": str(e)}
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                yield f"data: [DONE]\n\n"
+        
+        return StreamingResponse(
+            question_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
+                "X-Accel-Buffering": "no"  # Nginx 버퍼링 비활성화
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Streaming endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail="스트리밍 처리 중 오류가 발생했습니다.")
 
 # 기존 엔드포인트들도 유지 (하위 호환성)
 @router.get("/generate/{intent_id}")
