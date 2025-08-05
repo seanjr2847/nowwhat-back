@@ -232,7 +232,8 @@ async def analyze_intents(
         # 2. 사용자 국가/언어 정보 (프론트에서 전달받음)
         user_country = intent_request.userCountry
         user_language = intent_request.userLanguage
-        logger.info(f"Step 2: User country: {user_country}, language: {user_language}")
+        country_option = intent_request.countryOption
+        logger.info(f"Step 2: User country: {user_country}, language: {user_language}, countryOption: {country_option}")
         
         # 3. 세션 생성 및 DB 저장 (IP 감지 제거로 성능 향상)
         logger.info("Step 3: Creating intent session...")
@@ -247,10 +248,10 @@ async def analyze_intents(
         
         # 4. Gemini API를 통한 의도 분석 (국가/언어 정보 포함)
         logger.info("Step 4: Calling Gemini API...")
-        country_info = f"사용자 거주 국가: {user_country}" if user_country else ""
-        language_info = f"사용자 언어: {user_language}" if user_language else ""
+        country_info = f"사용자 거주 국가: {user_country}" if user_country and country_option else ""
+        language_info = f"사용자 언어: {user_language}" if user_language and country_option else ""
         
-        intents = await gemini_service.analyze_intent(goal, country_info, language_info)
+        intents = await gemini_service.analyze_intent(goal, country_info, language_info, country_option)
         logger.info(f"Step 4: Gemini API returned {len(intents)} intents")
         
         # 5. 생성된 의도 옵션을 DB에 업데이트

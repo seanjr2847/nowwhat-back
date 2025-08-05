@@ -9,7 +9,12 @@ class ChecklistResponse(BaseModel):
 
 def get_checklist_generation_prompt(goal: str, intent_title: str, answer_context: str, user_country: str = None, user_language: str = None, min_items: int = None, max_items: int = None) -> str:
     """체크리스트 생성용 프롬프트 생성 (한글)"""
-    return f"""당신은 개인 맞춤형 체크리스트 생성 전문가입니다. 사용자의 목표 달성을 위해 구체적이고 실행 가능한 체크리스트를 만드는 것이 전문입니다.
+    # 국가 정보가 있으면 국가 맞춤 검색 프롬프트 추가
+    country_search_prompt = ""
+    if user_country and user_country != "정보 없음":
+        country_search_prompt = f"\n\n해당 국가에 맞는 국가 정보 위주로 검색해주세요. {user_country}"
+    
+    return f"""당신은 개인 맞춤형 체크리스트 생성 전문가입니다. 사용자의 목표 달성을 위해 구체적이고 실행 가능한 체크리스트를 만드는 것이 전문입니다.{country_search_prompt}
 
 사용자 정보:
 - 목표: "{goal}"

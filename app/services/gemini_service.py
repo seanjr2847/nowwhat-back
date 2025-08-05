@@ -55,12 +55,12 @@ class GeminiService:
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
         logger.info(f"GeminiService initialized with model: {settings.GEMINI_MODEL}")
         
-    async def analyze_intent(self, goal: str, country_info: str = "", language_info: str = "") -> List[IntentOption]:
+    async def analyze_intent(self, goal: str, country_info: str = "", language_info: str = "", country_option: bool = True) -> List[IntentOption]:
         """사용자 목표를 분석하여 4가지 의도 옵션 생성"""
         try:
             # language_info에서 사용자 언어 추출
             user_language = self._extract_user_language(language_info)
-            prompt = self._create_prompt(goal, country_info, language_info, user_language)
+            prompt = self._create_prompt(goal, country_info, language_info, user_language, country_option)
             
             # 3회 재시도 로직
             for attempt in range(3):
@@ -91,11 +91,12 @@ class GeminiService:
         goal: str, 
         intent_title: str, 
         user_country: Optional[str] = None,
-        user_language: Optional[str] = None
+        user_language: Optional[str] = None,
+        country_option: bool = True
     ) -> List[Question]:
         """선택된 의도에 따른 맞춤 질문 생성"""
         try:
-            prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language)
+            prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language, country_option)
             
             # 3회 재시도 로직 (API 호출 실패시에만)
             for attempt in range(3):
@@ -125,11 +126,12 @@ class GeminiService:
         goal: str, 
         intent_title: str, 
         user_country: Optional[str] = None,
-        user_language: Optional[str] = None
+        user_language: Optional[str] = None,
+        country_option: bool = True
     ):
         """선택된 의도에 따른 맞춤 질문 생성 (스트리밍 버전)"""
         try:
-            prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language)
+            prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language, country_option)
             
             logger.info(f"Starting streaming question generation for: {goal}")
             
@@ -152,7 +154,7 @@ class GeminiService:
                     await asyncio.sleep(0.01)
                 yield char
 
-    def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None, user_language: Optional[str] = None) -> str:
+    def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None, user_language: Optional[str] = None, country_option: bool = True) -> str:
         """질문 생성용 프롬프트 생성"""
         country_context = self._get_country_context(user_country)
         language_context = self._get_language_context(user_language)
@@ -163,7 +165,8 @@ class GeminiService:
             user_country=user_country or "정보 없음",
             user_language=user_language or "정보 없음",
             country_context=country_context,
-            language_context=language_context
+            language_context=language_context,
+            country_option=country_option
         )
 
     def _get_country_context(self, user_country: Optional[str]) -> str:
@@ -362,9 +365,9 @@ class GeminiService:
             )
         ]
     
-    def _create_prompt(self, goal: str, country_info: str = "", language_info: str = "", user_language: str = None) -> str:
+    def _create_prompt(self, goal: str, country_info: str = "", language_info: str = "", user_language: str = None, country_option: bool = True) -> str:
         """Gemini API용 프롬프트 생성"""
-        return get_intent_analysis_prompt(goal, country_info, language_info, user_language)
+        return get_intent_analysis_prompt(goal, country_info, language_info, user_language, country_option)
     
     def _extract_user_language(self, language_info: str) -> str:
         """language_info 문자열에서 사용자 언어 추출"""

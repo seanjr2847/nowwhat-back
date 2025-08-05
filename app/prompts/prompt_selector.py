@@ -43,17 +43,30 @@ def load_prompt_module(module_name: str, language: Optional[str] = None):
             fallback_path = f"app.prompts.{module_name}"
             return importlib.import_module(fallback_path)
 
-def get_intent_analysis_prompt(goal: str, country_info: str = "", language_info: str = "", user_language: Optional[str] = None) -> str:
+def get_intent_analysis_prompt(goal: str, country_info: str = "", language_info: str = "", user_language: Optional[str] = None, country_option: bool = True) -> str:
     """언어별 의도 분석 프롬프트 반환"""
     module = load_prompt_module("intent_analysis", user_language)
+    
+    # countryOption이 False면 지역정보 제거
+    if not country_option:
+        country_info = ""
+        language_info = ""
+    
     return module.get_intent_analysis_prompt(goal, country_info, language_info)
 
 def get_questions_generation_prompt(
     goal: str, intent_title: str, user_country: str, user_language: str, 
-    country_context: str, language_context: str
+    country_context: str, language_context: str, country_option: bool = True
 ) -> str:
     """언어별 질문 생성 프롬프트 반환"""
     module = load_prompt_module("questions_generation", user_language)
+    
+    # countryOption이 False면 지역정보 제거
+    if not country_option:
+        user_country = "정보 없음"
+        country_context = ""
+        language_context = ""
+    
     return module.get_questions_generation_prompt(
         goal, intent_title, user_country, user_language, country_context, language_context
     )
@@ -61,10 +74,15 @@ def get_questions_generation_prompt(
 def get_checklist_generation_prompt(
     goal: str, intent_title: str, answer_context: str, 
     user_country: str = None, user_language: str = None, 
-    min_items: int = None, max_items: int = None
+    min_items: int = None, max_items: int = None, country_option: bool = True
 ) -> str:
     """언어별 체크리스트 생성 프롬프트 반환"""
     module = load_prompt_module("checklist_prompts", user_language)
+    
+    # countryOption이 False면 지역정보 제거
+    if not country_option:
+        user_country = None
+    
     return module.get_checklist_generation_prompt(
         goal, intent_title, answer_context, user_country, user_language, min_items, max_items
     )

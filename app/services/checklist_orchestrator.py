@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.questions import QuestionAnswersRequest, QuestionAnswersResponse, AnswerItemSchema
 from app.services.gemini_service import gemini_service
-from app.prompts.checklist_prompts import get_checklist_generation_prompt
+from app.prompts.prompt_selector import get_checklist_generation_prompt
 from app.crud.session import validate_session_basic, save_user_answers_to_session
 from app.models.database import Checklist, ChecklistItem, ChecklistItemDetails, User
 from app.services.details_extractor import details_extractor
@@ -146,7 +146,8 @@ class ChecklistOrchestrator:
                 intent_title=request.selectedIntent,
                 answer_context=answer_context,
                 user_country=request.userCountry,
-                user_language=request.userLanguage
+                user_language=request.userLanguage,
+                country_option=request.countryOption
             )
             
             # AI 호출 (기존 gemini_service 활용)

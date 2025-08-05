@@ -14,10 +14,17 @@ class IntentAnalysisResponse(BaseModel):
 
 def get_intent_analysis_prompt(goal: str, country_info: str = "", language_info: str = "") -> str:
     """Intent analysis prompt generation (English)"""
+    # 국가 정보가 있으면 국가 맞춤 검색 프롬프트 추가
+    country_search_prompt = ""
+    if country_info:
+        # country_info에서 국가명 추출 (예: "User country: US" -> "US")
+        country_name = country_info.split(":")[-1].strip() if ":" in country_info else country_info.strip()
+        country_search_prompt = f"\n\nPlease search primarily for country-specific information relevant to {country_name}."
+    
     return f"""# 4-Option Intent Analysis Prompt
 
 ## Purpose
-When users provide vague or abstract goals, generate 4 specific options to understand what they actually want. This helps quickly identify the user's true intent and provide personalized assistance.
+When users provide vague or abstract goals, generate 4 specific options to understand what they actually want. This helps quickly identify the user's true intent and provide personalized assistance.{country_search_prompt}
 
 ## Intent Classification Criteria
 1. **"How to start?"** - Starting point/approach (first steps, methodology)

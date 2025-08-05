@@ -8,6 +8,7 @@ class QuestionGenerateRequest(BaseModel):
     intentTitle: str
     userCountry: Optional[str] = None  # 프론트에서 전달, 기본값 없음
     userLanguage: Optional[str] = None  # 프론트에서 전달, 기본값 없음
+    countryOption: bool = Field(default=True, description="지역정보 포함 여부")
 
 # Response models
 class Option(BaseModel):
@@ -52,6 +53,7 @@ class QuestionAnswersRequest(BaseModel):
     answers: List[AnswerItemSchema] = Field(..., min_items=1, description="List of question answers")
     userCountry: Optional[str] = None  # 프론트에서 전달, 기본값 없음
     userLanguage: Optional[str] = None  # 프론트에서 전달, 기본값 없음
+    countryOption: bool = Field(default=True, description="지역정보 포함 여부")
 
     class Config:
         schema_extra = {

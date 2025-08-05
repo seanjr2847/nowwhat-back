@@ -24,10 +24,15 @@ def get_questions_generation_prompt(
     country_context: str, language_context: str
 ) -> str:
     """Question generation prompt (English)"""
+    # 국가 정보가 있으면 국가 맞춤 검색 프롬프트 추가
+    country_search_prompt = ""
+    if user_country and user_country != "정보 없음":
+        country_search_prompt = f"\n\nPlease search primarily for country-specific information relevant to {user_country}."
+    
     return f"""# Universal Checklist Question Generation Prompt
 
 ## Role
-You are a personalized checklist generation expert for achieving user goals. You design questions that adapt to various domains and goals to collect essential information.
+You are a personalized checklist generation expert for achieving user goals. You design questions that adapt to various domains and goals to collect essential information.{country_search_prompt}
 
 ## Input Information
 ```

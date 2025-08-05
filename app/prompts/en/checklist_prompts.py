@@ -9,7 +9,12 @@ class ChecklistResponse(BaseModel):
 
 def get_checklist_generation_prompt(goal: str, intent_title: str, answer_context: str, user_country: str = None, user_language: str = None, min_items: int = None, max_items: int = None) -> str:
     """Checklist generation prompt (English)"""
-    return f"""You are a personalized checklist generation expert. You specialize in creating specific and actionable checklists for users to achieve their goals.
+    # 국가 정보가 있으면 국가 맞춤 검색 프롬프트 추가
+    country_search_prompt = ""
+    if user_country and user_country != "Not specified":
+        country_search_prompt = f"\n\nPlease search primarily for country-specific information relevant to {user_country}."
+    
+    return f"""You are a personalized checklist generation expert. You specialize in creating specific and actionable checklists for users to achieve their goals.{country_search_prompt}
 
 User Information:
 - Goal: "{goal}"

@@ -14,10 +14,17 @@ class IntentAnalysisResponse(BaseModel):
 
 def get_intent_analysis_prompt(goal: str, country_info: str = "", language_info: str = "") -> str:
     """의도 분석용 프롬프트 생성 (한글)"""
+    # 국가 정보가 있으면 국가 맞춤 검색 프롬프트 추가
+    country_search_prompt = ""
+    if country_info:
+        # country_info에서 국가명 추출 (예: "사용자 거주 국가: TH" -> "TH")
+        country_name = country_info.split(":")[-1].strip() if ":" in country_info else country_info.strip()
+        country_search_prompt = f"\n\n해당 국가에 맞는 국가 정보 위주로 검색해주세요. {country_name}"
+    
     return f"""# 사용자 의도 파악을 위한 4가지 선택지 생성 프롬프트
 
 ## 목적
-사용자가 애매하거나 추상적인 목표를 말했을 때, 그들이 실제로 원하는 것이 무엇인지 파악하기 위한 4가지 구체적인 선택지를 생성합니다. 이를 통해 사용자의 진짜 의도를 빠르게 파악하고 맞춤형 도움을 제공할 수 있습니다.
+사용자가 애매하거나 추상적인 목표를 말했을 때, 그들이 실제로 원하는 것이 무엇인지 파악하기 위한 4가지 구체적인 선택지를 생성합니다. 이를 통해 사용자의 진짜 의도를 빠르게 파악하고 맞춤형 도움을 제공할 수 있습니다.{country_search_prompt}
 
 ## 의도 분류 기준
 1. **"어떻게 할까?"** - 시작점/접근법 (첫 발걸음, 방법론)

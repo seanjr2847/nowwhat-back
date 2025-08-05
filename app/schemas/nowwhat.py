@@ -48,6 +48,7 @@ class IntentAnalyzeRequest(BaseModel):
     goal: str = Field(..., description="사용자가 입력한 목표 텍스트")
     userCountry: Optional[str] = None  # 프론트에서 전달, 기본값 없음
     userLanguage: Optional[str] = None  # 프론트에서 전달, 기본값 없음
+    countryOption: bool = Field(default=True, description="지역정보 포함 여부")
 
 # 디버깅용 간단한 모델
 class SimpleTestRequest(BaseModel):

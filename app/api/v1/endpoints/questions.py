@@ -47,8 +47,9 @@ async def generate_questions(
         intent_title = question_request.intentTitle
         user_country = question_request.userCountry  # 프론트에서 전달, None 가능
         user_language = question_request.userLanguage  # 프론트에서 전달, None 가능
+        country_option = question_request.countryOption  # 지역정보 포함 여부
         
-        logger.info(f"Question generation request - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}', Country: {user_country}, Language: {user_language}")
+        logger.info(f"Question generation request - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}', Country: {user_country}, Language: {user_language}, CountryOption: {country_option}")
         
         # 1. 세션 유효성 검증 (의도 검증은 생략, 직접 전달받음)
         is_valid, db_session, error_message = validate_session_basic(
@@ -67,7 +68,8 @@ async def generate_questions(
                 goal=goal,
                 intent_title=intent_title,
                 user_country=user_country,
-                user_language=user_language
+                user_language=user_language,
+                country_option=country_option
             )
             
             logger.info(f"Generated {len(questions)} questions via Gemini API")
@@ -79,7 +81,8 @@ async def generate_questions(
                 goal=goal,
                 intent_title=intent_title,
                 user_country=user_country,
-                user_language=user_language
+                user_language=user_language,
+                country_option=country_option
             )
         
         # 4. 질문 검증 및 기본값 설정
@@ -248,8 +251,9 @@ async def generate_questions_stream(
         intent_title = question_request.intentTitle
         user_country = question_request.userCountry
         user_language = question_request.userLanguage
+        country_option = question_request.countryOption
         
-        logger.info(f"Streaming question generation - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}'")
+        logger.info(f"Streaming question generation - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}', CountryOption: {country_option}")
         
         # 1. 세션 유효성 검증
         is_valid, db_session, error_message = validate_session_basic(db, session_id)
@@ -285,7 +289,8 @@ async def generate_questions_stream(
                     goal=goal,
                     intent_title=intent_title,
                     user_country=user_country,
-                    user_language=user_language
+                    user_language=user_language,
+                    country_option=country_option
                 ):
                     chunk_data = {
                         "status": "generating",

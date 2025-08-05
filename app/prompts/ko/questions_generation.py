@@ -24,10 +24,15 @@ def get_questions_generation_prompt(
     country_context: str, language_context: str
 ) -> str:
     """질문 생성용 프롬프트 생성 (한글)"""
+    # 국가 정보가 있으면 국가 맞춤 검색 프롬프트 추가
+    country_search_prompt = ""
+    if user_country and user_country != "정보 없음":
+        country_search_prompt = f"\n\n해당 국가에 맞는 국가 정보 위주로 검색해주세요. {user_country}"
+    
     return f"""# 범용 체크리스트 질문 생성 프롬프트
 
 ## 역할
-당신은 사용자의 목표 달성을 위한 맞춤형 체크리스트 생성 전문가입니다. 다양한 도메인과 목표에 적응하여 핵심 정보를 수집하는 질문을 설계합니다.
+당신은 사용자의 목표 달성을 위한 맞춤형 체크리스트 생성 전문가입니다. 다양한 도메인과 목표에 적응하여 핵심 정보를 수집하는 질문을 설계합니다.{country_search_prompt}
 
 ## 입력 정보
 ```
