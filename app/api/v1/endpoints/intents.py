@@ -207,6 +207,7 @@ async def test_dependencies(request: Request, db: Session = Depends(get_db)):
 @router.post("/analyze", response_model=IntentAnalyzeApiResponse)
 async def analyze_intents(
     request: Request,
+    intent_request: IntentAnalyzeRequest,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -215,30 +216,7 @@ async def analyze_intents(
         # 디버깅을 위한 추가 로깅
         logger.info("=== ANALYZE START ===")
         logger.info(f"Request headers: {dict(request.headers)}")
-        
-        # Raw body 읽기 및 디버깅  
-        body = await request.body()
-        logger.info(f"Raw body (bytes): {body}")
-        logger.info(f"Raw body (str): {body.decode('utf-8') if body else 'Empty'}")
-        logger.info(f"Content-Type: {request.headers.get('content-type', 'Not set')}")
-        
-        # JSON 파싱 시도
-        try:
-            if body:
-                import json
-                json_data = json.loads(body.decode('utf-8'))
-                logger.info(f"Parsed JSON: {json_data}")
-                intent_request = IntentAnalyzeRequest(**json_data)
-                logger.info(f"Pydantic model created: {intent_request}")
-            else:
-                raise HTTPException(status_code=400, detail="Request body is empty")
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {e}")
-            raise HTTPException(status_code=400, detail="Invalid JSON format")
-        except Exception as e:
-            logger.error(f"Pydantic validation error: {e}")
-            raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
-        
+        logger.info(f"Received intent_request: {intent_request}")
         logger.info(f"Goal: {intent_request.goal}")
         logger.info(f"UserCountry: {intent_request.userCountry}")
         logger.info(f"UserLanguage: {intent_request.userLanguage}")

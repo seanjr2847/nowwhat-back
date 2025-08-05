@@ -645,11 +645,18 @@ class GeminiService:
                 logger.error("Intent parsing - Response became empty after cleaning")
                 raise ValueError("Empty response after cleaning")
             
-            intents_data = json.loads(response)
-            logger.debug(f"Intent parsing - Successfully parsed JSON with {len(intents_data) if isinstance(intents_data, list) else 'non-list'} items")
+            json_data = json.loads(response)
+            logger.debug(f"Intent parsing - Successfully parsed JSON: {type(json_data)}")
             
-            if not isinstance(intents_data, list):
-                raise ValueError("Response is not a list")
+            # JSON 응답이 {"intents": [...]} 형태인지 확인
+            if isinstance(json_data, dict) and "intents" in json_data:
+                intents_data = json_data["intents"]
+                logger.debug(f"Intent parsing - Found intents array with {len(intents_data)} items")
+            elif isinstance(json_data, list):
+                intents_data = json_data
+                logger.debug(f"Intent parsing - Using direct list with {len(intents_data)} items")
+            else:
+                raise ValueError(f"Unexpected response format: {type(json_data)}")
                 
             intents = []
             for item in intents_data:
