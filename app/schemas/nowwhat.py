@@ -189,9 +189,34 @@ class FeedbackRequest(BaseModel):
     checklistId: str
     isPositive: bool
     rating: Optional[int] = Field(None, ge=1, le=5, description="1-5점 평가")
+    comment: Optional[str] = Field(None, description="사용자 피드백 내용")
+    categories: Optional[List[str]] = Field(None, description="피드백 카테고리")
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class FeedbackUpdateRequest(BaseModel):
+    isPositive: Optional[bool] = None
+    rating: Optional[int] = Field(None, ge=1, le=5, description="1-5점 평가")
+    comment: Optional[str] = Field(None, description="사용자 피드백 내용")
+    categories: Optional[List[str]] = Field(None, description="피드백 카테고리")
+
+class FeedbackResponse(BaseModel):
+    feedbackId: str
+    checklistId: str
+    checklistTitle: Optional[str] = None
+    isPositive: bool
+    rating: Optional[int] = None
     comment: Optional[str] = None
     categories: Optional[List[str]] = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    createdAt: datetime
+    
+class FeedbackStatistics(BaseModel):
+    total_count: int = 0
+    positive_count: int = 0
+    negative_count: int = 0
+    positive_rate: float = 0.0
+    average_rating: float = 0.0
+    rating_distribution: Dict[str, int] = {}
+    has_comments: int = 0
 
 # 에러 응답
 class ErrorResponse(BaseModel):
