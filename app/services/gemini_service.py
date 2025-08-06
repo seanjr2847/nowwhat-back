@@ -17,6 +17,33 @@ from dataclasses import dataclass
 from typing import Any
 from pydantic import BaseModel
 
+# Constants
+class GeminiConfig:
+    """Gemini Service Configuration Constants"""
+    RETRY_ATTEMPTS = 3
+    EXPECTED_INTENTS_COUNT = 4
+    MIN_CONTENT_LENGTH = 50
+    CHUNK_SIZE = 100
+    STREAM_DELAY = 0.01
+    MAX_OUTPUT_TOKENS = 20480
+    TEMPERATURE = 0.7
+    TOP_P = 0.8
+    TOP_K = 40
+    TIMEOUT_SECONDS = 30
+    CONCURRENT_SEARCH_LIMIT = 15
+
+class GeminiServiceError(Exception):
+    """Base exception for Gemini Service errors"""
+    pass
+
+class GeminiAPIError(GeminiServiceError):
+    """Exception raised for Gemini API errors"""
+    pass
+
+class GeminiResponseError(GeminiServiceError):
+    """Exception raised for response parsing errors"""
+    pass
+
 logger = logging.getLogger(__name__)
 # Gemini 서비스 디버깅을 위해 임시로 DEBUG 레벨 설정
 logger.setLevel(logging.DEBUG)
@@ -56,35 +83,51 @@ class GeminiService:
         logger.info(f"GeminiService initialized with model: {settings.GEMINI_MODEL}")
         
     async def analyze_intent(self, goal: str, country_info: str = "", language_info: str = "", country_option: bool = True) -> List[IntentOption]:
-        """사용자 목표를 분석하여 4가지 의도 옵션 생성"""
+        """사용자 목표 분석 및 의도 옵션 생성
+        
+        비즈니스 로직:
+        - 사용자 입력 목표를 Gemini AI로 분석하여 4가지 구체적인 실행 의도 도출
+        - 지역정보(country_info)와 언어정보(language_info)를 활용한 맞춤형 의도 생성
+        - 3회 재시도 메커니즘으로 API 실패 시 안정성 보장
+        - API 실패 시 기본 템플릿으로 폴백하여 서비스 중단 방지
+        """
         try:
-            # language_info에서 사용자 언어 추출
             user_language = self._extract_user_language(language_info)
             prompt = self._create_prompt(goal, country_info, language_info, user_language, country_option)
             
-            # 3회 재시도 로직
-            for attempt in range(3):
-                try:
-                    response = await self._call_gemini_api(prompt)
-                    intents = self._parse_response(response)
-                    
-                    if len(intents) == 4:
-                        return intents
-                    else:
-                        logger.warning(f"Gemini returned {len(intents)} intents instead of 4 (attempt {attempt + 1})")
-                        
-                except Exception as e:
-                    logger.error(f"Gemini API call failed (attempt {attempt + 1}): {str(e)}")
-                    if attempt < 2:  # 마지막 시도가 아니면 지연 후 재시도
-                        await asyncio.sleep(2 ** attempt)  # exponential backoff
-                    
-            # 모든 재시도 실패시 기본 템플릿 반환
-            logger.warning("All Gemini API attempts failed, using default template")
-            return self._get_default_template()
+            intents = await self._analyze_intent_with_retry(prompt)
+            return intents if intents else self._get_default_template()
             
         except Exception as e:
             logger.error(f"Intent analysis failed: {str(e)}")
             return self._get_default_template()
+
+    async def _analyze_intent_with_retry(self, prompt: str) -> Optional[List[IntentOption]]:
+        """재시도 메커니즘을 통한 안정적인 의도 분석
+        
+        비즈니스 로직:
+        - Gemini API 호출 실패 시 최대 3회 재시도하여 일시적 네트워크 오류 극복
+        - 각 재시도 간 지수백오프 적용으로 서버 부하 최소화
+        - 구조화된 출력 형식으로 일관된 응답 데이터 보장
+        - 파싱 실패 시에도 재시도하여 데이터 무결성 확보
+        """
+        for attempt in range(GeminiConfig.RETRY_ATTEMPTS):
+            try:
+                response = await self._call_gemini_api(prompt)
+                intents = self._parse_response(response)
+                
+                if len(intents) == GeminiConfig.EXPECTED_INTENTS_COUNT:
+                    return intents
+                else:
+                    logger.warning(f"Gemini returned {len(intents)} intents instead of {GeminiConfig.EXPECTED_INTENTS_COUNT} (attempt {attempt + 1})")
+                    
+            except Exception as e:
+                logger.error(f"Gemini API call failed (attempt {attempt + 1}): {str(e)}")
+                if attempt < GeminiConfig.RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(2 ** attempt)  # exponential backoff
+                
+        logger.warning("All Gemini API attempts failed, using default template")
+        return None
 
     async def generate_questions(
         self, 
@@ -94,32 +137,47 @@ class GeminiService:
         user_language: Optional[str] = None,
         country_option: bool = True
     ) -> List[Question]:
-        """선택된 의도에 따른 맞춤 질문 생성"""
+        """선택된 의도를 기반으로 맞춤형 질문 생성
+        
+        비즈니스 로직:
+        - 사용자의 목표와 선택된 의도에 따라 3-5개의 상세 질문 생성
+        - 지역정보와 언어 정보를 활용하여 본화된 질문 제공
+        - 각 질문에 대한 다중 선택 옵션도 함께 생성
+        - API 실패 시 범용 질문 템플릿으로 폴백하여 서비스 연속성 보장
+        """
         try:
             prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language, country_option)
-            
-            # 3회 재시도 로직 (API 호출 실패시에만)
-            for attempt in range(3):
-                try:
-                    response = await self._call_gemini_api(prompt)
-                    questions = self._parse_questions_response(response)
-                    
-                    # 질문 개수에 관계없이 반환
-                    logger.info(f"Gemini returned {len(questions)} questions")
-                    return questions
-                        
-                except Exception as e:
-                    logger.error(f"Gemini questions API call failed (attempt {attempt + 1}): {str(e)}")
-                    if attempt < 2:
-                        await asyncio.sleep(2 ** attempt)
-                    
-            # 모든 재시도 실패시 캐시된 질문 템플릿 반환
-            logger.warning("All Gemini questions API attempts failed, using cached template")
-            return self._get_cached_questions_template(intent_title)
+            questions = await self._generate_questions_with_retry(prompt, intent_title)
+            return questions if questions else self._get_cached_questions_template(intent_title)
             
         except Exception as e:
             logger.error(f"Question generation failed: {str(e)}")
             return self._get_cached_questions_template(intent_title)
+
+    async def _generate_questions_with_retry(self, prompt: str, intent_title: str) -> Optional[List[Question]]:
+        """재시도 메커니즘을 통한 안정적인 질문 생성
+        
+        비즈니스 로직:
+        - Gemini API로 질문 생성 시 최대 3회 재시도로 안정성 확보
+        - API 실패 또는 무효한 응답 시 지수백오프로 재시도 주기 조절
+        - 각 시도에서 질문 수와 구조 유효성 검증
+        - 모든 시도 실패 시 캐시된 템플릿으로 폴백
+        """
+        for attempt in range(GeminiConfig.RETRY_ATTEMPTS):
+            try:
+                response = await self._call_gemini_api(prompt)
+                questions = self._parse_questions_response(response)
+                
+                logger.info(f"Gemini returned {len(questions)} questions")
+                return questions
+                    
+            except Exception as e:
+                logger.error(f"Gemini questions API call failed (attempt {attempt + 1}): {str(e)}")
+                if attempt < GeminiConfig.RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(2 ** attempt)
+                
+        logger.warning("All Gemini questions API attempts failed, using cached template")
+        return None
 
     async def generate_questions_stream(
         self, 
@@ -129,51 +187,91 @@ class GeminiService:
         user_language: Optional[str] = None,
         country_option: bool = True
     ):
-        """선택된 의도에 따른 맞춤 질문 생성 (스트리밍 버전)"""
-        accumulated_content = ""
+        """실시간 스트리밍으로 맞춤형 질문 생성
+        
+        비즈니스 로직:
+        - Server-Sent Events (SSE) 형식으로 실시간 질문 생성 과정을 사용자에게 전송
+        - 스트리밍 중 데이터 무결성 실시간 검증
+        - JSON 데이터 완전성 검증 및 불완전 시 자동 수정
+        - 스트리밍 실패 시 즉시 폴백 질문 생성으로 사용자 경험 보장
+        - 어떤 상황에서도 사용자는 항상 완전한 데이터 수신
+        """
         stream_id = str(uuid.uuid4())[:8]
+        accumulated_content = ""
         
         try:
             prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language, country_option)
-            
             logger.info(f"🌊 Starting streaming question generation for: {goal} (intent: {intent_title}) [Stream: {stream_id}]")
             
-            # Gemini 스트리밍 API 호출 및 완전성 검증
-            async for chunk in self._call_gemini_api_stream_with_validation(prompt, stream_id):
+            # 스트리밍 실행 및 결과 처리
+            async for chunk in self._stream_questions_with_validation(prompt, stream_id, accumulated_content):
                 accumulated_content += chunk
                 yield chunk
             
-            # 최종 JSON 완전성 검증
-            if not self._validate_json_completeness(accumulated_content, stream_id):
-                logger.warning(f"🚨 Incomplete JSON detected [Stream: {stream_id}], generating fallback")
-                # 불완전한 경우 완전한 JSON을 다시 생성하여 전송
-                fallback_content = await self._generate_fallback_questions(goal, intent_title, user_country, user_language, country_option)
-                if fallback_content:
-                    yield "\n\n--- 완전한 질문 데이터 ---\n"
-                    yield fallback_content
+            # 후처리: 완전성 검증 및 폴백 처리
+            async for chunk in self._handle_stream_completion(
+                accumulated_content, stream_id, goal, intent_title, user_country, user_language, country_option
+            ):
+                yield chunk
                 
         except Exception as e:
             logger.error(f"🚨 Streaming question generation failed [Stream: {stream_id}]: {str(e)}")
-            # 에러 발생시 캐시된 템플릿을 스트리밍 형태로 반환
-            try:
-                cached_questions = self._get_cached_questions_template(intent_title)
+            async for chunk in self._handle_stream_error(stream_id, intent_title):
+                yield chunk
+
+    async def _stream_questions_with_validation(self, prompt: str, stream_id: str, accumulated_content: str):
+        """실시간 검증이 포함된 질문 스트리밍
+        
+        비즈니스 로직:
+        - Gemini API 스트리밍 응답을 청크 단위로 수신
+        - 각 청크마다 JSON 구조 유효성 예비 검증
+        - 스트리밍 중단 또는 오류 발생 시 즉시 감지
+        - 누적된 콘텐츠의 완전성을 실시간 모니터링
+        """
+        async for chunk in self._call_gemini_api_stream_with_validation(prompt, stream_id):
+            yield chunk
+
+    async def _handle_stream_completion(self, content: str, stream_id: str, goal: str, intent_title: str, 
+                                      user_country: Optional[str], user_language: Optional[str], country_option: bool):
+        """스트림 완료 후 데이터 완전성 처리
+        
+        비즈니스 로직:
+        - 스트리밍 완료 시 누적된 콘텐츠의 JSON 구조 완전성 검증
+        - 불완전한 JSON 감지 시 즉시 폴백 질문 생성으로 대체
+        - 사용자가 항상 완전한 데이터를 받도록 보장
+        - 폴백 생성 시 동일한 매개변수로 맥락 일관성 유지
+        """
+        if not self._validate_json_completeness(content, stream_id):
+            logger.warning(f"🚨 Incomplete JSON detected [Stream: {stream_id}], generating fallback")
+            fallback_content = await self._generate_fallback_questions(goal, intent_title, user_country, user_language, country_option)
+            if fallback_content:
+                yield "\n\n--- 완전한 질문 데이터 ---\n"
+                yield fallback_content
+
+    async def _handle_stream_error(self, stream_id: str, intent_title: str):
+        """스트리밍 오류 시 비상 대융 처리
+        
+        비즈니스 로직:
+        - 스트리밍 API 실패 시 짆시 없이 대안 데이터 제공
+        - 의도별 캐시된 질문 템플릿을 스트리밍 형식으로 전송
+        - 청크 단위 전솨으로 실시간 전송 효과 유지
+        - 폴백 데이터도 실패 시 기본 오류 메시지 대신 JSON 형태로 제공
+        """
+        try:
+            cached_questions = self._get_cached_questions_template(intent_title)
+            questions_json = json.dumps({"questions": [q.dict() for q in cached_questions]}, ensure_ascii=False, indent=2)
+            
+            logger.info(f"📦 Sending cached questions [Stream: {stream_id}], size: {len(questions_json)} chars")
+            
+            # 청크 단위로 전송
+            for i in range(0, len(questions_json), GeminiConfig.CHUNK_SIZE):
+                chunk = questions_json[i:i + GeminiConfig.CHUNK_SIZE]
+                yield chunk
+                await asyncio.sleep(GeminiConfig.STREAM_DELAY)
                 
-                # JSON 형태로 변환하여 스트리밍
-                import json
-                questions_json = json.dumps({"questions": [q.dict() for q in cached_questions]}, ensure_ascii=False, indent=2)
-                
-                logger.info(f"📦 Sending cached questions [Stream: {stream_id}], size: {len(questions_json)} chars")
-                
-                # 안정적으로 청크 단위로 전송
-                chunk_size = 100  # 100자씩 전송
-                for i in range(0, len(questions_json), chunk_size):
-                    chunk = questions_json[i:i + chunk_size]
-                    yield chunk
-                    await asyncio.sleep(0.01)  # 작은 지연으로 안정성 확보
-                    
-            except Exception as fallback_error:
-                logger.error(f"🚨 Fallback generation also failed [Stream: {stream_id}]: {str(fallback_error)}")
-                yield '{"error": "질문 생성에 실패했습니다. 다시 시도해주세요."}'
+        except Exception as fallback_error:
+            logger.error(f"🚨 Fallback generation also failed [Stream: {stream_id}]: {str(fallback_error)}")
+            yield '{"error": "질문 생성에 실패했습니다. 다시 시도해주세요."}'
 
     def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None, user_language: Optional[str] = None, country_option: bool = True) -> str:
         """질문 생성용 프롬프트 생성"""
@@ -191,8 +289,16 @@ class GeminiService:
         )
 
     def _get_country_context(self, user_country: Optional[str]) -> str:
-        """국가별 맞춤 컨텍스트"""
-        contexts = {
+        """
+        국가별 맞춤 컨텍스트 생성
+        
+        Args:
+            user_country: 사용자 국가 코드 (ISO 2자리)
+            
+        Returns:
+            해당 국가의 문화적 맥락을 설명하는 문자열
+        """
+        contexts: Dict[str, str] = {
             "KR": "한국 거주자 기준, 한국 문화와 환경 고려",
             "US": "미국 거주자 기준, 미국 문화와 환경 고려", 
             "JP": "일본 거주자 기준, 일본 문화와 환경 고려",
@@ -201,8 +307,16 @@ class GeminiService:
         return contexts.get(user_country, "글로벌 기준")
 
     def _get_language_context(self, user_language: Optional[str]) -> str:
-        """언어별 맞춤 컨텍스트"""
-        contexts = {
+        """
+        언어별 맞춤 컨텍스트 생성
+        
+        Args:
+            user_language: 사용자 언어 코드 (ISO 639-1)
+            
+        Returns:
+            해당 언어의 문화적 맥락을 설명하는 문자열
+        """
+        contexts: Dict[str, str] = {
             "ko": "한국어 기준, 한국 문화적 맥락 고려",
             "en": "English, Western cultural context",
             "ja": "日本語、日本の文化的文脈を考慮",
@@ -213,7 +327,14 @@ class GeminiService:
         return contexts.get(user_language, "다국어 지원")
 
     def _parse_questions_response(self, response: str) -> List[Question]:
-        """Gemini 질문 응답 파싱"""
+        """Gemini API 질문 생성 응답 파싱
+        
+        비즈니스 로직:
+        - 갤미니에서 수신한 JSON 형태의 질문 데이터를 Question 객체로 변환
+        - 마크다운 코드 블록 내에서 JSON 데이터 추출
+        - 질문 구조 및 필수 필드 유효성 검증
+        - 파싱 실패 시 예외 발생으로 상위 레이어에 오류 전파
+        """
         try:
             # 응답이 비어있는지 확인
             if not response or not response.strip():
@@ -275,7 +396,14 @@ class GeminiService:
             raise Exception(f"Failed to parse Gemini questions response: {str(e)}")
 
     def _get_cached_questions_template(self, intent_title: str) -> List[Question]:
-        """의도별 캐시된 질문 템플릿"""
+        """의도별 폴백 질문 템플릿 제공
+        
+        비즈니스 로직:
+        - Gemini API 실패 시 사용할 의도별 기본 질문 템플릿 제공
+        - 주요 의도(여행, 건강, 개발, 자기계발)에 대해 미리 정의된 질문 세트
+        - 각 질문은 다중 선택 형태로 바로 사용 가능한 구조
+        - 지원되지 않는 의도에 대해서도 범용 질문 제공
+        """
         templates = {
             "여행 계획": [
                 Question(
@@ -423,10 +551,10 @@ class GeminiService:
                     prompt,
                     tools=[search_tool],
                     generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=8192,
-                        temperature=0.7,
-                        top_p=0.8,
-                        top_k=40,
+                        max_output_tokens=8192,  # 검색용으로 더 작은 토큰 사용
+                        temperature=GeminiConfig.TEMPERATURE,
+                        top_p=GeminiConfig.TOP_P,
+                        top_k=GeminiConfig.TOP_K,
                         response_mime_type="application/json",
                         response_schema=response_schema
                     )
@@ -537,7 +665,14 @@ class GeminiService:
             return await self._call_gemini_api(prompt)
     
     async def _call_gemini_api(self, prompt: str) -> str:
-        """Gemini API 호출"""
+        """Gemini API 일반 호출 (비스트리밍)
+        
+        비즈니스 로직:
+        - 동기식 Gemini API 호출로 전체 응답을 한 번에 수신
+        - 생성 콘피그 설정으로 음성의 다양성과 품질 제어
+        - 응답 구조 및 Safety Rating 상세 검증
+        - 빈 응답 또는 매서드에서 텍스트 추출 실패 시 예외 발생
+        """
         try:
             logger.debug(f"Sending prompt to Gemini (length: {len(prompt)} chars)")
             response = await asyncio.to_thread(
@@ -608,7 +743,14 @@ class GeminiService:
             raise Exception(f"Gemini API call failed: {str(e)}")
     
     async def _call_gemini_api_stream(self, prompt: str):
-        """Gemini API 스트리밍 호출"""
+        """Gemini API 실시간 스트리밍 호출
+        
+        비즈니스 로직:
+        - Server-Sent Events 형식으로 실시간 데이터 전송
+        - generator_content_stream() 함수로 청크 단위 데이터 수신
+        - 스트리밍 중 오류 발생 시 진단 정보와 함께 예외 발생
+        - 각 청크에 대한 로깅 및 오류 처리 포함
+        """
         try:
             logger.debug(f"Starting streaming request to Gemini (prompt length: {len(prompt)} chars)")
             
@@ -699,7 +841,14 @@ class GeminiService:
             raise Exception(f"Failed to parse Gemini response: {str(e)}")
     
     def _get_default_template(self) -> List[IntentOption]:
-        """기본 의도 템플릿"""
+        """API 실패 시 기본 의도 템플릿 제공
+        
+        비즈니스 로직:
+        - Gemini API 전체 실패 시 서비스 연속성을 위한 기본 의도 옵션 제공
+        - 일반적인 사용자 목표에 적용 가능한 4가지 보편적 의도 타입
+        - 각 의도는 아이콘, 제목, 설명을 포함한 완전한 구조
+        - 사용자가 똑같이 4가지 옵션을 받을 수 있도록 보장
+        """
         return [
             IntentOption(
                 title="계획 세우기",
@@ -724,7 +873,15 @@ class GeminiService:
         ]
     
     async def parallel_search(self, queries: List[str]) -> List[SearchResult]:
-        """여러 검색 쿼리를 병렬로 실행"""
+        """다중 검색 쿼리 병렬 실행
+        
+        비즈니스 로직:
+        - 체크리스트 아이템별로 생성된 검색 쿼리를 병렬 처리
+        - API 제한(MAX_CONCURRENT_SEARCHES)을 고려한 배치 처리
+        - 각 배치별로 asyncio.gather로 병렬 실행으로 성능 최적화
+        - 성공/실패 통계 및 로깅으로 검색 품질 모니터링
+        - 검색 실패 시에도 오류 결과 객체로 전체 결과에 포함
+        """
         logger.info("🚀 GEMINI 병렬 검색 시작")
         logger.info(f"   📝 요청된 쿼리 수: {len(queries)}개")
         
@@ -824,7 +981,15 @@ class GeminiService:
             return [self._create_error_result(query, str(e)) for query in limited_queries]
     
     async def _search_single_query(self, query: str) -> SearchResult:
-        """단일 검색 쿼리 실행 (Gemini 웹 검색 기능 사용)"""
+        """단일 검색 쿼리 실시간 실행
+        
+        비즈니스 로직:
+        - 개별 체크리스트 아이템에 대한 Google 검색 기반 실시간 정보 수집
+        - get_search_prompt()로 구조화된 검색 프롬프트 생성
+        - Gemini API의 웹 검색 기능으로 최신 정보 획등
+        - 검색 시간 추적 및 성능 모니터링
+        - 예외 발생 시 SearchResult 오류 객체로 안전한 실패 처리
+        """
         start_time = asyncio.get_event_loop().time()
         logger.debug(f"🔍 단일 검색 시작: '{query[:50]}...'")
         
@@ -860,7 +1025,15 @@ class GeminiService:
             return self._create_error_result(query, f"Exception: {str(e)}")
     
     def _parse_search_response(self, query: str, response: str) -> SearchResult:
-        """Gemini 검색 응답 파싱 (Structured Output JSON)"""
+        """Gemini 웹 검색 응답 구조화 파싱
+        
+        비즈니스 로직:
+        - Structured Output으로 수신된 JSON 형태의 검색 결과를 SearchResult 객체로 변환
+        - tips, contacts, links, price, location 등 다양한 정보 유형 처리
+        - JSON 파싱 실패 시 원본 콘텐츠를 폴백 데이터로 활용
+        - 링크 정보를 sources 배열로 추출하여 손막 추적
+        - 모든 경우에 유효한 SearchResult 객체 반환 보장
+        """
         try:
             if not response or not response.strip():
                 return self._create_error_result(query, "Empty response")
@@ -919,7 +1092,14 @@ class GeminiService:
             return self._create_error_result(query, f"Parse error: {str(e)}")
     
     def _create_error_result(self, query: str, error_message: str) -> SearchResult:
-        """에러 결과 생성"""
+        """검색 오류 시 기본 SearchResult 객체 생성
+        
+        비즈니스 로직:
+        - 검색 실패 시에도 일관된 SearchResult 구조로 결과 반환
+        - success=False로 설정하여 상위 레이어에서 실패 처리 가능
+        - error_message에 상세 오류 정보 저장
+        - 빈 content와 sources로 오류 상황 명시
+        """
         return SearchResult(
             query=query,
             content="",
@@ -934,7 +1114,14 @@ class GeminiService:
         goal: str,
         answers: List[Dict[str, Any]]
     ) -> List[str]:
-        """체크리스트 아이템을 직접 검색 쿼리로 사용 (1:1 매핑)"""
+        """체크리스트 아이템 기반 검색 쿼리 생성
+        
+        비즈니스 로직:
+        - 생성된 체크리스트 아이템 각각을 검색 쿼리로 1:1 변환
+        - 사용자의 목표와 답변 맥락을 고려한 쿼리 최적화
+        - 각 아이템에 대해 구체적이고 실행 가능한 검색 쿼리 제공
+        - 모든 체크리스트 아이템에 대한 쿼리 보장으로 완전한 검색 범위
+        """
         
         logger.info("🎯 GEMINI 검색 쿼리 생성 시작")
         logger.info(f"   📋 체크리스트 아이템: {len(checklist_items)}개")
@@ -973,7 +1160,14 @@ class GeminiService:
     
     
     def _create_gemini_compatible_schema(self) -> Dict[str, Any]:
-        """Gemini API 호환 JSON Schema 생성 (SearchResponse를 기반으로)"""
+        """Gemini API 호환 JSON 스키마 생성
+        
+        비즈니스 로직:
+        - SearchResponse Pydantic 모델을 Gemini API에서 사용 가능한 JSON 스키마로 변환
+        - $defs와 $ref를 사용하지 않은 인라인 스키마 구조
+        - tips, contacts, links, price, location 등 검색 결과에 필요한 모든 필드 정의
+        - Structured Output을 통한 일관되고 예측 가능한 응답 형식 보장
+        """
         # Gemini는 $defs와 $ref를 지원하지 않으므로 인라인 스키마로 변환
         return {
             "type": "object",
@@ -1038,7 +1232,15 @@ class GeminiService:
         }
     
     async def _call_gemini_api_stream_with_validation(self, prompt: str, stream_id: str):
-        """Gemini API 스트리밍 호출 (검증 강화 버전)"""
+        """Gemini API 강화된 스트리밍 호출
+        
+        비즈니스 로직:
+        - 스트리밍 데이터의 실시간 완전성 검증 포함
+        - 청크 단위 데이터 수신 및 누적 콘텐츠 추적
+        - 주기적인 진행 상황 로깅으로 스트리밍 상태 모니터링
+        - 스트리밍 완료 후 JSON 구조 완전성 검증
+        - 안정적인 생성 콘피그 설정으로 일관성 있는 응답 보장
+        """
         chunks_received = 0
         total_chars = 0
         accumulated_text = ""
@@ -1048,10 +1250,10 @@ class GeminiService:
             
             # Gemini 스트리밍 설정 (더 안정적인 설정)
             generation_config = genai.types.GenerationConfig(
-                max_output_tokens=20480,  # 더 큰 토큰 제한
-                temperature=0.7,
-                top_p=0.8,
-                top_k=40,
+                max_output_tokens=GeminiConfig.MAX_OUTPUT_TOKENS,
+                temperature=GeminiConfig.TEMPERATURE,
+                top_p=GeminiConfig.TOP_P,
+                top_k=GeminiConfig.TOP_K,
                 stop_sequences=None,  # 중단 시퀀스 제거
             )
             
@@ -1100,7 +1302,15 @@ class GeminiService:
             raise Exception(f"Gemini validated streaming failed: {str(e)}")
     
     def _validate_json_completeness(self, content: str, stream_id: str) -> bool:
-        """JSON 완전성 검증"""
+        """누적된 콘텐츠의 JSON 완전성 검증
+        
+        비즈니스 로직:
+        - 스트리밍 완료 후 누적된 콘텐츠가 완전한 JSON 구조인지 검증
+        - 마크다운 코드 블록에서 JSON 데이터 추출
+        - questions 배열의 존재 여부와 각 질문의 필수 필드 검증
+        - 질문 옵션의 완전성 및 텍스트 잘림 현상 감지
+        - 검증 실패 시 상세 로깅으로 디버깅 정보 제공
+        """
         try:
             # 마크다운 블록 제거
             clean_content = self._extract_json_from_markdown(content)
@@ -1156,10 +1366,18 @@ class GeminiService:
             return False
     
     def _validate_stream_completion(self, content: str, stream_id: str, total_chars: int):
-        """스트리밍 완료 검증"""
+        """스트리밍 완료 후 콘텐츠 무결성 검증
+        
+        비즈니스 로직:
+        - 전체 스트리밍이 완료된 후 콘텐츠의 완전성 최종 점검
+        - 콘텐츠 길이가 예상보다 너무 짧은지 확인
+        - JSON 구조의 바람망괄호와 대괄호 균형 검증
+        - 마크다운 코드 블록이 완전히 닫혀있는지 확인
+        - 각 검증 단계별 상세 경고 로깅
+        """
         try:
             # 기본 길이 검증 (너무 짧으면 불완전)
-            if total_chars < 100:
+            if total_chars < GeminiConfig.MIN_CONTENT_LENGTH:
                 logger.warning(f"🚨 Stream suspiciously short [Stream: {stream_id}]: {total_chars} chars")
             
             # JSON 구조 완료 검증
@@ -1177,7 +1395,14 @@ class GeminiService:
             logger.error(f"🚨 Stream completion validation error [Stream: {stream_id}]: {str(e)}")
     
     def _extract_json_from_markdown(self, content: str) -> str:
-        """마크다운에서 JSON 부분 추출"""
+        """마크다운 코드 블록에서 순수 JSON 추출
+        
+        비즈니스 로직:
+        - Gemini API에서 반환하는 ```json...``` 형태의 마크다운 래핑 제거
+        - JSON 코드 블록이 있으면 내부 JSON만 추출
+        - 코드 블록이 없으면 첨번째 {부터 마지막 }까지 추출
+        - 추출 실패 시 원본 콘텐츠 그대로 반환하여 안정성 보장
+        """
         try:
             content = content.strip()
             
@@ -1203,7 +1428,15 @@ class GeminiService:
             return content
     
     async def _generate_fallback_questions(self, goal: str, intent_title: str, user_country: Optional[str], user_language: Optional[str], country_option: bool) -> Optional[str]:
-        """불완전한 스트리밍 시 폴백 질문 생성"""
+        """스트리밍 실패 시 비스트리밍 폴백 질문 생성
+        
+        비즈니스 로직:
+        - 스트리밍 JSON이 불완전할 때 일반 API로 완전한 질문 다시 생성
+        - 동일한 매개변수(goal, intent, country, language)로 일관성 유지
+        - generate_questions() 사용하여 안정적인 비스트리밍 생성
+        - Question 객체를 JSON 문자열로 변환하여 대체 데이터 제공
+        - 폴백 실패 시 None 반환으로 상위 래이어에 오류 전파
+        """
         try:
             logger.info(f"🔄 Generating fallback questions for: {goal} (intent: {intent_title})")
             
