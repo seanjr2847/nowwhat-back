@@ -435,7 +435,7 @@ class GeminiService:
                         prompt,
                         tools=[search_tool],
                         generation_config=genai.types.GenerationConfig(
-                            max_output_tokens=8192,
+                            max_output_tokens=16384,  # 검색 기능 토큰 제한 증가
                             temperature=0.7,
                             top_p=0.8,
                             top_k=40,
@@ -459,7 +459,7 @@ class GeminiService:
                         self.model.generate_content,
                         enhanced_prompt,
                         generation_config=genai.types.GenerationConfig(
-                            max_output_tokens=8192,
+                            max_output_tokens=16384,  # 검색 기능 토큰 제한 증가
                             temperature=0.7,
                             top_p=0.8,
                             top_k=40,
@@ -523,7 +523,7 @@ class GeminiService:
                 self.model.generate_content, 
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=8192,  # 체크리스트 생성을 위해 더 큰 토큰 수 설정
+                    max_output_tokens=16384,  # 질문 생성 토큰 제한 증가
                     temperature=0.7,
                     top_p=0.8,
                     top_k=40
@@ -593,7 +593,7 @@ class GeminiService:
             
             # Gemini 스트리밍 설정
             generation_config = genai.types.GenerationConfig(
-                max_output_tokens=8192,
+                max_output_tokens=16384,  # 질문 생성 토큰 제한 증가
                 temperature=0.7,
                 top_p=0.8,
                 top_k=40
