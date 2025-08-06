@@ -26,6 +26,273 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+# JSON 완전성 검증 함수
+async def verify_json_completeness(content: str, stream_id: str) -> bool:
+    """스트리밍된 JSON 데이터의 완전성 검증"""
+    try:
+        if not content or len(content.strip()) < 50:
+            logger.warning(f"🚨 Content too short [{stream_id}]: {len(content)} chars")
+            return False
+        
+        # 마크다운 블록에서 JSON 추출
+        clean_content = content.strip()
+        if '```json' in clean_content:
+            start = clean_content.find('```json') + 7
+            end = clean_content.rfind('```')
+            if end > start:
+                clean_content = clean_content[start:end].strip()
+        
+        # JSON 파싱 시도
+        try:
+            parsed = json.loads(clean_content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"🚨 JSON parsing failed [{stream_id}]: {str(e)}")
+            return False
+        
+        # 기본 구조 검증
+        if not isinstance(parsed, dict) or 'questions' not in parsed:
+            logger.warning(f"🚨 Invalid structure [{stream_id}]: missing 'questions' field")
+            return False
+        
+        questions = parsed['questions']
+        if not isinstance(questions, list) or len(questions) == 0:
+            logger.warning(f"🚨 Invalid questions [{stream_id}]: not a list or empty")
+            return False
+        
+        # 각 질문의 필수 필드 검증
+        for i, question in enumerate(questions):
+            if not isinstance(question, dict):
+                logger.warning(f"🚨 Question {i} invalid [{stream_id}]: not a dict")
+                return False
+            
+            required_fields = ['id', 'text', 'type', 'options']
+            for field in required_fields:
+                if field not in question:
+                    logger.warning(f"🚨 Question {i} missing '{field}' [{stream_id}]")
+                    return False
+            
+            # 옵션 검증
+            if question['type'] == 'multiple':
+                options = question['options']
+                if not isinstance(options, list) or len(options) == 0:
+                    logger.warning(f"🚨 Question {i} invalid options [{stream_id}]")
+                    return False
+                
+                # 각 옵션이 완전한지 검증
+                for j, option in enumerate(options):
+                    if isinstance(option, dict):
+                        if 'text' not in option or not option['text']:
+                            logger.warning(f"🚨 Question {i}, Option {j} incomplete text [{stream_id}]")
+                            return False
+                        
+                        # 텍스트가 중간에 잘렸는지 검증 (괄호나 따옴표가 열려있는지)
+                        text = option['text']
+                        if text.count('(') != text.count(')') or text.count('"') % 2 != 0:
+                            logger.warning(f"🚨 Question {i}, Option {j} truncated text [{stream_id}]: '{text}'")
+                            return False
+        
+        logger.info(f"✅ JSON validation passed [{stream_id}]: {len(questions)} questions verified")
+        return True
+        
+    except Exception as e:
+        logger.error(f"🚨 JSON validation error [{stream_id}]: {str(e)}")
+        return False
+
+
+# 향상된 JSON 검증 및 자동 수정 함수
+async def verify_and_fix_json_completeness(content: str, stream_id: str) -> tuple[bool, list]:
+    """JSON 완전성 검증하고 불완전한 경우 최대한 복구 시도"""
+    try:
+        if not content or len(content.strip()) < 50:
+            logger.warning(f"🚨 Content too short [{stream_id}]: {len(content)} chars")
+            return False, []
+        
+        # 마크다운 블록에서 JSON 추출
+        clean_content = content.strip()
+        if '```json' in clean_content:
+            start = clean_content.find('```json') + 7
+            end = clean_content.rfind('```')
+            if end > start:
+                clean_content = clean_content[start:end].strip()
+            else:
+                # 마크다운 블록이 닫히지 않은 경우 - 마지막 ``` 없이 처리
+                clean_content = clean_content[clean_content.find('```json') + 7:].strip()
+        
+        # JSON 파싱 시도
+        try:
+            parsed = json.loads(clean_content)
+            questions = parsed.get('questions', [])
+            
+            # 완전한 구조인지 검증
+            valid_questions = []
+            for i, question in enumerate(questions):
+                if isinstance(question, dict) and all(field in question for field in ['id', 'text', 'type', 'options']):
+                    # 옵션 검증 및 수정
+                    if question['type'] == 'multiple' and isinstance(question['options'], list):
+                        fixed_options = []
+                        for option in question['options']:
+                            if isinstance(option, dict) and 'text' in option and option['text']:
+                                # 불완전한 텍스트 감지 및 수정
+                                text = option['text']
+                                if text.count('(') != text.count(')'):
+                                    # 열린 괄호가 있으면 닫아줌
+                                    text += ')' * (text.count('(') - text.count(')'))
+                                    option['text'] = text
+                                    logger.info(f"🔧 Auto-fixed unbalanced parentheses in question {i} [{stream_id}]")
+                                
+                                # id와 value 필드가 없으면 생성
+                                if 'id' not in option:
+                                    option['id'] = f"opt_{len(fixed_options) + 1}"
+                                if 'value' not in option:
+                                    option['value'] = option['id']
+                                
+                                fixed_options.append(option)
+                        
+                        question['options'] = fixed_options
+                        if len(fixed_options) > 0:  # 최소 하나의 유효한 옵션이 있는 경우만 포함
+                            valid_questions.append(question)
+            
+            if len(valid_questions) > 0:
+                logger.info(f"✅ JSON validated with fixes [{stream_id}]: {len(valid_questions)} valid questions")
+                return True, valid_questions
+            
+        except json.JSONDecodeError as e:
+            # JSON 파싱 실패 시 부분적 복구 시도
+            logger.info(f"🔧 Attempting partial JSON recovery [{stream_id}]: {str(e)}")
+            recovered_questions = attempt_partial_json_recovery(clean_content, stream_id)
+            if recovered_questions:
+                return True, recovered_questions
+        
+        logger.warning(f"🚨 Could not validate or fix JSON [{stream_id}]")
+        return False, []
+        
+    except Exception as e:
+        logger.error(f"🚨 JSON validation/fix error [{stream_id}]: {str(e)}")
+        return False, []
+
+
+def attempt_partial_json_recovery(content: str, stream_id: str) -> list:
+    """부분적으로 손상된 JSON에서 최대한 질문 데이터 복구"""
+    try:
+        # 완전하지 않은 JSON에서 질문 객체들 추출 시도
+        questions = []
+        
+        # "questions": [ 이후 부분 찾기
+        start_marker = '"questions"'
+        if start_marker in content:
+            questions_start = content.find(start_marker)
+            bracket_start = content.find('[', questions_start)
+            if bracket_start != -1:
+                # 각 질문 객체를 개별적으로 파싱 시도
+                remaining = content[bracket_start + 1:]
+                question_objects = []
+                
+                # { 로 시작하는 객체들 찾기
+                brace_count = 0
+                current_obj = ""
+                for char in remaining:
+                    if char == '{':
+                        if brace_count == 0:
+                            current_obj = "{"
+                        else:
+                            current_obj += char
+                        brace_count += 1
+                    elif char == '}':
+                        current_obj += char
+                        brace_count -= 1
+                        if brace_count == 0 and current_obj:
+                            # 완성된 객체 파싱 시도
+                            try:
+                                question_obj = json.loads(current_obj)
+                                if isinstance(question_obj, dict) and 'text' in question_obj:
+                                    # 최소 필수 필드 보완
+                                    if 'id' not in question_obj:
+                                        question_obj['id'] = f"recovered_q_{len(question_objects) + 1}"
+                                    if 'type' not in question_obj:
+                                        question_obj['type'] = "multiple"
+                                    if 'options' not in question_obj or not question_obj['options']:
+                                        question_obj['options'] = [{"id": "opt_1", "text": "기타", "value": "other"}]
+                                    
+                                    question_objects.append(question_obj)
+                                    logger.info(f"🔧 Recovered question object [{stream_id}]: {question_obj.get('text', '')[:50]}...")
+                                    
+                            except json.JSONDecodeError:
+                                pass  # 개별 객체 파싱 실패는 무시
+                            current_obj = ""
+                    else:
+                        if brace_count > 0:
+                            current_obj += char
+                
+                if question_objects:
+                    logger.info(f"✅ Partial recovery successful [{stream_id}]: {len(question_objects)} questions recovered")
+                    return question_objects
+        
+        logger.warning(f"🚨 Partial recovery failed [{stream_id}]")
+        return []
+        
+    except Exception as e:
+        logger.error(f"🚨 Partial recovery error [{stream_id}]: {str(e)}")
+        return []
+
+
+# 인라인 폴백 질문 생성 함수
+async def generate_fallback_questions_inline(goal: str, intent_title: str, user_country: str, user_language: str, country_option: bool) -> str:
+    """스트리밍 실패 시 즉시 완전한 질문 생성"""
+    try:
+        logger.info(f"🚀 Generating immediate fallback questions for: {goal} (intent: {intent_title})")
+        
+        # GeminiService의 일반 API로 완전한 질문 생성 (스트리밍 아님)
+        questions = await gemini_service.generate_questions(
+            goal=goal,
+            intent_title=intent_title,
+            user_country=user_country,
+            user_language=user_language,
+            country_option=country_option
+        )
+        
+        if questions and len(questions) > 0:
+            # 완전한 JSON 형태로 변환
+            questions_data = [{
+                "id": q.id,
+                "text": q.text,
+                "type": q.type,
+                "options": [{
+                    "id": opt.id,
+                    "text": opt.text,
+                    "value": opt.value
+                } for opt in q.options] if hasattr(q, 'options') and q.options else [],
+                "category": getattr(q, 'category', 'general')
+            } for q in questions]
+            
+            fallback_json = json.dumps({"questions": questions_data}, ensure_ascii=False, indent=2)
+            logger.info(f"✅ Immediate fallback generated: {len(questions)} questions, {len(fallback_json)} chars")
+            return fallback_json
+        
+    except Exception as e:
+        logger.error(f"🚨 Immediate fallback generation failed: {str(e)}")
+        
+        # 최후의 수단: 하드코딩된 기본 질문
+        default_questions = {
+            "questions": [
+                {
+                    "id": "default_q1",
+                    "text": f"{intent_title}을(를) 위해 가장 중요하게 생각하는 것은 무엇인가요?",
+                    "type": "multiple",
+                    "options": [
+                        {"id": "opt_quality", "text": "품질과 완성도", "value": "quality"},
+                        {"id": "opt_speed", "text": "빠른 시작과 진행", "value": "speed"},
+                        {"id": "opt_cost", "text": "비용 효율성", "value": "cost"},
+                        {"id": "opt_learning", "text": "학습과 경험", "value": "learning"}
+                    ],
+                    "category": "priority"
+                }
+            ]
+        }
+        return json.dumps(default_questions, ensure_ascii=False, indent=2)
+    
+    return None
+
 @router.post("/generate", response_model=QuestionGenerateResponse)
 async def generate_questions(
     request: Request,
@@ -280,16 +547,17 @@ async def generate_questions_stream(
                 }
             )
         
-        # 2. 스트리밍 응답 생성
+        # 2. 스트리밍 응답 생성 (강화된 완전성 검증)
         async def question_stream():
+            accumulated_content = ""
             try:
                 # 시작 신호
                 start_data = {"status": "started", "message": f"질문 생성을 시작합니다... [{stream_id}]"}
                 yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
                 
-                logger.info(f"🌊 Starting Gemini stream [{stream_id}]")
+                logger.info(f"🌊 Starting enhanced Gemini stream [{stream_id}]")
                 
-                # Gemini 스트리밍 호출
+                # Gemini 스트리밍 호출 (검증 강화 버전)
                 async for chunk in gemini_service.generate_questions_stream(
                     goal=goal,
                     intent_title=intent_title,
@@ -297,6 +565,7 @@ async def generate_questions_stream(
                     user_language=user_language,
                     country_option=country_option
                 ):
+                    accumulated_content += chunk
                     chunk_data = {
                         "status": "generating",
                         "chunk": chunk,
@@ -304,15 +573,61 @@ async def generate_questions_stream(
                     }
                     yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                 
-                # 완료 신호
-                logger.info(f"🌊 Stream completed [{stream_id}]")
-                complete_data = {"status": "completed", "message": f"질문 생성이 완료되었습니다. [{stream_id}]"}
-                yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars")
+                
+                # 최종 JSON 완전성 검증
+                is_complete, parsed_questions = await verify_and_fix_json_completeness(accumulated_content, stream_id)
+                
+                if is_complete:
+                    # 완료 신호 (정상)
+                    complete_data = {
+                        "status": "completed", 
+                        "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
+                        "validated": True,
+                        "total_chars": len(accumulated_content)
+                    }
+                    yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                else:
+                    # 불완전한 데이터 감지 시 자동으로 완성하여 전송
+                    logger.warning(f"🚨 Incomplete JSON detected [{stream_id}], auto-completing and sending full data")
+                    
+                    # 자동 완성 또는 폴백 데이터 생성
+                    if parsed_questions:
+                        # 부분적으로 파싱된 데이터가 있으면 완성
+                        fixed_json = json.dumps({"questions": parsed_questions}, ensure_ascii=False, indent=2)
+                        yield f"data: {json.dumps({'status': 'fixed_partial', 'chunk': fixed_json}, ensure_ascii=False)}\n\n"
+                        logger.info(f"✅ Auto-completed partial data [{stream_id}]: {len(parsed_questions)} questions")
+                    else:
+                        # 아예 파싱 불가능한 경우 새로 생성
+                        logger.info(f"🔄 Generating fresh questions due to corrupted stream [{stream_id}]")
+                        fallback_questions = await generate_fallback_questions_inline(
+                            goal, intent_title, user_country, user_language, country_option
+                        )
+                        if fallback_questions:
+                            yield f"data: {json.dumps({'status': 'regenerated', 'chunk': fallback_questions}, ensure_ascii=False)}\n\n"
+                            logger.info(f"✅ Fresh questions generated and sent [{stream_id}]")
+                    
+                    # 어떤 경우든 사용자는 완전한 데이터를 받았다고 알림
+                    complete_data = {
+                        "status": "completed",
+                        "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
+                        "auto_completed": True
+                    }
+                    yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                
+                # [DONE] 신호 전솨 전 마지막 검증
+                await asyncio.sleep(0.1)  # 짧은 대기 시간
                 yield f"data: [DONE]\n\n"
                 
             except Exception as e:
-                logger.error(f"🌊 Streaming error [{stream_id}]: {str(e)}")
-                error_data = {"status": "error", "error": str(e)}
+                logger.error(f"🚨 Enhanced streaming error [{stream_id}]: {str(e)}")
+                error_data = {
+                    "status": "error", 
+                    "error": str(e),
+                    "stream_id": stream_id,
+                    "accumulated_chars": len(accumulated_content),
+                    "recovery_suggestion": "비스트리밍 버전(일반 API)을 사용해주세요."
+                }
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
         
@@ -324,7 +639,9 @@ async def generate_questions_stream(
                 "Connection": "keep-alive",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Headers": "*",
-                "X-Accel-Buffering": "no"  # Nginx 버퍼링 비활성화
+                "X-Accel-Buffering": "no",  # Nginx 버퍼링 비활성화
+                "Transfer-Encoding": "chunked",  # 청크 전송 명시
+                "Content-Type": "text/plain; charset=utf-8"  # UTF-8 인코딩 명시
             }
         )
         

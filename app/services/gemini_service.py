@@ -130,29 +130,50 @@ class GeminiService:
         country_option: bool = True
     ):
         """선택된 의도에 따른 맞춤 질문 생성 (스트리밍 버전)"""
+        accumulated_content = ""
+        stream_id = str(uuid.uuid4())[:8]
+        
         try:
             prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language, country_option)
             
-            logger.info(f"🌊 Starting streaming question generation for: {goal} (intent: {intent_title})")
+            logger.info(f"🌊 Starting streaming question generation for: {goal} (intent: {intent_title}) [Stream: {stream_id}]")
             
-            # Gemini 스트리밍 API 호출
-            async for chunk in self._call_gemini_api_stream(prompt):
+            # Gemini 스트리밍 API 호출 및 완전성 검증
+            async for chunk in self._call_gemini_api_stream_with_validation(prompt, stream_id):
+                accumulated_content += chunk
                 yield chunk
+            
+            # 최종 JSON 완전성 검증
+            if not self._validate_json_completeness(accumulated_content, stream_id):
+                logger.warning(f"🚨 Incomplete JSON detected [Stream: {stream_id}], generating fallback")
+                # 불완전한 경우 완전한 JSON을 다시 생성하여 전송
+                fallback_content = await self._generate_fallback_questions(goal, intent_title, user_country, user_language, country_option)
+                if fallback_content:
+                    yield "\n\n--- 완전한 질문 데이터 ---\n"
+                    yield fallback_content
                 
         except Exception as e:
-            logger.error(f"Streaming question generation failed: {str(e)}")
+            logger.error(f"🚨 Streaming question generation failed [Stream: {stream_id}]: {str(e)}")
             # 에러 발생시 캐시된 템플릿을 스트리밍 형태로 반환
-            cached_questions = self._get_cached_questions_template(intent_title)
-            
-            # JSON 형태로 변환하여 스트리밍
-            import json
-            questions_json = json.dumps([q.dict() for q in cached_questions], ensure_ascii=False)
-            
-            # 문자별로 천천히 전송 (스트리밍 효과)
-            for i, char in enumerate(questions_json):
-                if i % 10 == 0:  # 10글자마다 약간의 지연
-                    await asyncio.sleep(0.01)
-                yield char
+            try:
+                cached_questions = self._get_cached_questions_template(intent_title)
+                
+                # JSON 형태로 변환하여 스트리밍
+                import json
+                questions_json = json.dumps({"questions": [q.dict() for q in cached_questions]}, ensure_ascii=False, indent=2)
+                
+                logger.info(f"📦 Sending cached questions [Stream: {stream_id}], size: {len(questions_json)} chars")
+                
+                # 안정적으로 청크 단위로 전송
+                chunk_size = 100  # 100자씩 전송
+                for i in range(0, len(questions_json), chunk_size):
+                    chunk = questions_json[i:i + chunk_size]
+                    yield chunk
+                    await asyncio.sleep(0.01)  # 작은 지연으로 안정성 확보
+                    
+            except Exception as fallback_error:
+                logger.error(f"🚨 Fallback generation also failed [Stream: {stream_id}]: {str(fallback_error)}")
+                yield '{"error": "질문 생성에 실패했습니다. 다시 시도해주세요."}'
 
     def _create_questions_prompt(self, goal: str, intent_title: str, user_country: Optional[str] = None, user_language: Optional[str] = None, country_option: bool = True) -> str:
         """질문 생성용 프롬프트 생성"""
@@ -1015,6 +1036,189 @@ class GeminiService:
             },
             "required": ["tips", "contacts", "links"]
         }
+    
+    async def _call_gemini_api_stream_with_validation(self, prompt: str, stream_id: str):
+        """Gemini API 스트리밍 호출 (검증 강화 버전)"""
+        chunks_received = 0
+        total_chars = 0
+        accumulated_text = ""
+        
+        try:
+            logger.debug(f"🔍 Starting validated streaming request [Stream: {stream_id}] (prompt length: {len(prompt)} chars)")
+            
+            # Gemini 스트리밍 설정 (더 안정적인 설정)
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=20480,  # 더 큰 토큰 제한
+                temperature=0.7,
+                top_p=0.8,
+                top_k=40,
+                stop_sequences=None,  # 중단 시퀀스 제거
+            )
+            
+            # 스트리밍 응답 생성
+            response_stream = await asyncio.to_thread(
+                self.model.generate_content,
+                prompt,
+                generation_config=generation_config,
+                stream=True
+            )
+            
+            logger.debug(f"✅ Gemini streaming response initiated [Stream: {stream_id}]")
+            
+            # 스트리밍 응답 처리 (완전성 검증 포함)
+            for chunk in response_stream:
+                chunk_text = ""
+                
+                if hasattr(chunk, 'text') and chunk.text:
+                    chunk_text = chunk.text
+                elif hasattr(chunk, 'candidates') and chunk.candidates:
+                    for candidate in chunk.candidates:
+                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    chunk_text += part.text
+                
+                if chunk_text:
+                    chunks_received += 1
+                    total_chars += len(chunk_text)
+                    accumulated_text += chunk_text
+                    
+                    # 주기적으로 진행 상황 로깅
+                    if chunks_received % 10 == 0:
+                        logger.debug(f"📊 [Stream: {stream_id}] Chunks: {chunks_received}, Chars: {total_chars}")
+                    
+                    yield chunk_text
+            
+            logger.info(f"📋 Stream completed [Stream: {stream_id}]: {chunks_received} chunks, {total_chars} chars")
+            
+            # 스트리밍 완료 후 JSON 구조 검증
+            self._validate_stream_completion(accumulated_text, stream_id, total_chars)
+                                    
+        except Exception as e:
+            logger.error(f"🚨 Validated streaming API error [Stream: {stream_id}]: {str(e)}")
+            logger.debug(f"Error details - Chunks received: {chunks_received}, Total chars: {total_chars}")
+            raise Exception(f"Gemini validated streaming failed: {str(e)}")
+    
+    def _validate_json_completeness(self, content: str, stream_id: str) -> bool:
+        """JSON 완전성 검증"""
+        try:
+            # 마크다운 블록 제거
+            clean_content = self._extract_json_from_markdown(content)
+            
+            # JSON 파싱 시도
+            parsed = json.loads(clean_content)
+            
+            # 질문 구조 검증
+            if not isinstance(parsed, dict) or 'questions' not in parsed:
+                logger.warning(f"🚨 Invalid JSON structure [Stream: {stream_id}]: missing 'questions' field")
+                return False
+            
+            questions = parsed['questions']
+            if not isinstance(questions, list) or len(questions) == 0:
+                logger.warning(f"🚨 Invalid questions array [Stream: {stream_id}]: empty or not a list")
+                return False
+            
+            # 각 질문 검증
+            for i, question in enumerate(questions):
+                if not isinstance(question, dict):
+                    logger.warning(f"🚨 Question {i} is not a dict [Stream: {stream_id}]")
+                    return False
+                
+                required_fields = ['id', 'text', 'type', 'options']
+                for field in required_fields:
+                    if field not in question:
+                        logger.warning(f"🚨 Question {i} missing field '{field}' [Stream: {stream_id}]")
+                        return False
+                
+                # 옵션 검증 (multiple type인 경우)
+                if question['type'] == 'multiple':
+                    options = question['options']
+                    if not isinstance(options, list) or len(options) == 0:
+                        logger.warning(f"🚨 Question {i} has invalid options [Stream: {stream_id}]")
+                        return False
+                    
+                    # 각 옵션 검증
+                    for j, option in enumerate(options):
+                        if isinstance(option, dict):
+                            if 'id' not in option or 'text' not in option:
+                                logger.warning(f"🚨 Question {i}, Option {j} missing required fields [Stream: {stream_id}]")
+                                return False
+            
+            logger.info(f"✅ JSON validation passed [Stream: {stream_id}]: {len(questions)} questions validated")
+            return True
+            
+        except json.JSONDecodeError as e:
+            logger.warning(f"🚨 JSON parsing failed [Stream: {stream_id}]: {str(e)}")
+            logger.debug(f"Content preview: {content[:500]}...")
+            return False
+        except Exception as e:
+            logger.error(f"🚨 JSON validation error [Stream: {stream_id}]: {str(e)}")
+            return False
+    
+    def _validate_stream_completion(self, content: str, stream_id: str, total_chars: int):
+        """스트리밍 완료 검증"""
+        try:
+            # 기본 길이 검증 (너무 짧으면 불완전)
+            if total_chars < 100:
+                logger.warning(f"🚨 Stream suspiciously short [Stream: {stream_id}]: {total_chars} chars")
+            
+            # JSON 구조 완료 검증
+            brace_count = content.count('{') - content.count('}')
+            bracket_count = content.count('[') - content.count(']')
+            
+            if brace_count != 0 or bracket_count != 0:
+                logger.warning(f"🚨 Unbalanced brackets detected [Stream: {stream_id}]: braces={brace_count}, brackets={bracket_count}")
+            
+            # 마크다운 블록 완료 검증
+            if '```json' in content and not content.rstrip().endswith('```'):
+                logger.warning(f"🚨 Incomplete markdown block [Stream: {stream_id}]")
+                
+        except Exception as e:
+            logger.error(f"🚨 Stream completion validation error [Stream: {stream_id}]: {str(e)}")
+    
+    def _extract_json_from_markdown(self, content: str) -> str:
+        """마크다운에서 JSON 부분 추출"""
+        try:
+            content = content.strip()
+            
+            # ```json...``` 패턴 찾기
+            if '```json' in content:
+                start = content.find('```json') + 7
+                end = content.rfind('```')
+                if end > start:
+                    json_content = content[start:end].strip()
+                    return json_content
+            
+            # JSON 패턴이 없으면 전체 내용 반환 (첫 { 부터 마지막 } 까지)
+            first_brace = content.find('{')
+            last_brace = content.rfind('}')
+            
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                return content[first_brace:last_brace + 1]
+            
+            return content
+            
+        except Exception as e:
+            logger.error(f"JSON extraction error: {str(e)}")
+            return content
+    
+    async def _generate_fallback_questions(self, goal: str, intent_title: str, user_country: Optional[str], user_language: Optional[str], country_option: bool) -> Optional[str]:
+        """불완전한 스트리밍 시 폴백 질문 생성"""
+        try:
+            logger.info(f"🔄 Generating fallback questions for: {goal} (intent: {intent_title})")
+            
+            # 일반 API 호출로 완전한 질문 생성
+            questions = await self.generate_questions(goal, intent_title, user_country, user_language, country_option)
+            
+            if questions:
+                fallback_json = json.dumps({"questions": [q.dict() for q in questions]}, ensure_ascii=False, indent=2)
+                logger.info(f"✅ Fallback questions generated: {len(questions)} questions, {len(fallback_json)} chars")
+                return fallback_json
+            
+        except Exception as e:
+            logger.error(f"🚨 Fallback question generation failed: {str(e)}")
+        
+        return None
 
 # 서비스 인스턴스
 gemini_service = GeminiService() 
