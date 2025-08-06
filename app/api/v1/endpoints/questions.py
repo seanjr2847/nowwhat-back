@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 import json
 import asyncio
@@ -19,12 +19,34 @@ from app.crud.session import (
 )
 from app.services.checklist_orchestrator import checklist_orchestrator, ChecklistGenerationError
 from app.models.database import User
+from app.core.config import settings
 import logging
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def get_cors_headers(request: Request = None) -> dict:
+    """프로덕션용 CORS 헤더 생성"""
+    # 요청의 Origin 헤더 확인
+    origin = None
+    if request:
+        origin = request.headers.get("origin")
+    
+    # 허용된 Origin인지 확인
+    allowed_origin = "https://nowwhat-front.vercel.app"  # 프로덕션 도메인
+    if origin and origin in settings.ALLOWED_ORIGINS:
+        allowed_origin = origin
+    
+    return {
+        "Access-Control-Allow-Origin": allowed_origin,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Max-Age": "86400"  # 24시간
+    }
 
 
 # JSON 완전성 검증 함수
@@ -501,6 +523,14 @@ async def submit_answers(
             detail="서버 내부 오류가 발생했습니다. 관리자에게 문의해주세요."
         )
 
+@router.options("/generate/stream")
+async def options_generate_questions_stream(request: Request):
+    """스트리밍 엔드포인트를 위한 프리플라이트 CORS 처리"""
+    return Response(
+        status_code=200,
+        headers=get_cors_headers(request)
+    )
+
 @router.post("/generate/stream")
 async def generate_questions_stream(
     request: Request,
@@ -536,15 +566,20 @@ async def generate_questions_stream(
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
             
+            cors_headers = get_cors_headers(request)
+            streaming_headers = {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+            streaming_headers.update(cors_headers)
+            
             return StreamingResponse(
                 error_stream(),
-                media_type="text/plain",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Headers": "*"
-                }
+                media_type="text/plain; charset=utf-8",
+                headers=streaming_headers
             )
         
         # 2. 스트리밍 응답 생성 (강화된 완전성 검증)
@@ -631,18 +666,22 @@ async def generate_questions_stream(
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
         
+        # CORS 헤더와 스트리밍 헤더 합치기
+        cors_headers = get_cors_headers(request)
+        streaming_headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Nginx 버퍼링 비활성화
+            "Transfer-Encoding": "chunked",  # 청크 전송 명시
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+        streaming_headers.update(cors_headers)
+        
         return StreamingResponse(
             question_stream(),
-            media_type="text/plain",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "*",
-                "X-Accel-Buffering": "no",  # Nginx 버퍼링 비활성화
-                "Transfer-Encoding": "chunked",  # 청크 전송 명시
-                "Content-Type": "text/plain; charset=utf-8"  # UTF-8 인코딩 명시
-            }
+            media_type="text/plain; charset=utf-8",
+            headers=streaming_headers
         )
         
     except Exception as e:

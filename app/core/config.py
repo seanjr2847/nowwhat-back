@@ -27,11 +27,11 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_SEARCHES: int = int(os.getenv("MAX_CONCURRENT_SEARCHES", "15"))
     SEARCH_TIMEOUT_SECONDS: int = int(os.getenv("SEARCH_TIMEOUT_SECONDS", "15"))
     
-    # CORS 설정
+    # CORS 설정 - 프로덕션용
     ALLOWED_ORIGINS: List[str] = [
-        "http://localhost:3000", 
-        "http://localhost:8080", 
-        "https://nowwhat-front.vercel.app"  # Vercel 프론트엔드 도메인
+        "https://nowwhat-front.vercel.app",  # 메인 프로덕션 도메인
+        "http://localhost:3000",  # 로컬 개발용
+        "http://localhost:8080"   # 로컬 개발용
     ]
     
     # 로깅 설정
