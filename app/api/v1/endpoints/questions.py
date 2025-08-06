@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import json
 import asyncio
+import uuid
 from app.schemas.questions import (
     QuestionGenerateRequest, QuestionGenerateResponse, 
     Question, Option,
@@ -253,7 +254,9 @@ async def generate_questions_stream(
         user_language = question_request.userLanguage
         country_option = question_request.countryOption
         
-        logger.info(f"Streaming question generation - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}', CountryOption: {country_option}")
+        # 스트리밍 요청 고유 ID 생성
+        stream_id = str(uuid.uuid4())[:8]
+        logger.info(f"🌊 API: Streaming request [{stream_id}] - Session: {session_id}, Goal: '{goal}', Intent: '{intent_title}', CountryOption: {country_option}")
         
         # 1. 세션 유효성 검증
         is_valid, db_session, error_message = validate_session_basic(db, session_id)
@@ -281,8 +284,10 @@ async def generate_questions_stream(
         async def question_stream():
             try:
                 # 시작 신호
-                start_data = {"status": "started", "message": "질문 생성을 시작합니다..."}
+                start_data = {"status": "started", "message": f"질문 생성을 시작합니다... [{stream_id}]"}
                 yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
+                
+                logger.info(f"🌊 Starting Gemini stream [{stream_id}]")
                 
                 # Gemini 스트리밍 호출
                 async for chunk in gemini_service.generate_questions_stream(
@@ -300,12 +305,13 @@ async def generate_questions_stream(
                     yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                 
                 # 완료 신호
-                complete_data = {"status": "completed", "message": "질문 생성이 완료되었습니다."}
+                logger.info(f"🌊 Stream completed [{stream_id}]")
+                complete_data = {"status": "completed", "message": f"질문 생성이 완료되었습니다. [{stream_id}]"}
                 yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
                 
             except Exception as e:
-                logger.error(f"Streaming error: {str(e)}")
+                logger.error(f"🌊 Streaming error [{stream_id}]: {str(e)}")
                 error_data = {"status": "error", "error": str(e)}
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"

@@ -133,7 +133,7 @@ class GeminiService:
         try:
             prompt = self._create_questions_prompt(goal, intent_title, user_country, user_language, country_option)
             
-            logger.info(f"Starting streaming question generation for: {goal}")
+            logger.info(f"🌊 Starting streaming question generation for: {goal} (intent: {intent_title})")
             
             # Gemini 스트리밍 API 호출
             async for chunk in self._call_gemini_api_stream(prompt):

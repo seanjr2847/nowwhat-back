@@ -103,13 +103,13 @@ def get_questions_generation_prompt(
           "value": "1week"
         }},
         {{
-          "id": "opt_1month", 
+          "id": "opt_1month",
           "text": "1개월 내",
           "value": "1month"
         }},
         {{
           "id": "opt_3months",
-          "text": "3개월 내", 
+          "text": "3개월 내",
           "value": "3months"
         }},
         {{

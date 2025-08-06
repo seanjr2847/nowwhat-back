@@ -22,11 +22,10 @@ class ChecklistGenerationError(Exception):
 
 class ChecklistOrchestrator:
     """체크리스트 생성을 위한 전체 워크플로우 오케스트레이션"""
-    
+
     def __init__(self):
         self.min_checklist_items = settings.MIN_CHECKLIST_ITEMS
-        self.max_checklist_items = settings.MAX_CHECKLIST_ITEMS
-        
+        self.max_checklist_items = settings.MAX_CHECKLIST_ITEMS        
     async def process_answers_to_checklist(
         self,
         request: QuestionAnswersRequest,
@@ -34,7 +33,6 @@ class ChecklistOrchestrator:
         db: Session
     ) -> QuestionAnswersResponse:
         """전체 답변 처리 및 체크리스트 생성 워크플로우"""
-        
         try:
             logger.info(f"Starting checklist generation for user {user.id}")
             
@@ -194,41 +192,34 @@ class ChecklistOrchestrator:
             
             logger.info(f"✅ 검색 쿼리 생성 완료: {len(search_queries)}개")
             logger.info("🚀 Gemini 병렬 검색 실행 중...")
-            
             # 병렬 검색 실행
             search_results = await gemini_service.parallel_search(search_queries)
-            
             # 결과 분석
             success_count = sum(1 for r in search_results if r.success)
-            failed_count = len(search_results) - success_count
-            
+            failed_count = len(search_results) - success_count     
             logger.info("=" * 60)
             logger.info("📊 ORCHESTRATOR 검색 결과 분석")
             logger.info("=" * 60)
-            logger.info(f"✅ 성공한 검색: {success_count}개")
-            logger.info(f"❌ 실패한 검색: {failed_count}개")
-            logger.info(f"📈 성공률: {(success_count/len(search_results)*100):.1f}%")
-            
+            logger.info("✅ 성공한 검색: %s개",success_count)
+            logger.info("❌ 실패한 검색: %s개",failed_count)
+            logger.info("📈 성공률: %.1f%%",(success_count/len(search_results)*100))  
             if success_count > 0:
                 # 성공한 검색 결과의 콘텐츠 길이 분석
                 successful_results = [r for r in search_results if r.success and r.content]
                 if successful_results:
                     content_lengths = [len(r.content) for r in successful_results]
                     avg_length = sum(content_lengths) / len(content_lengths)
-                    logger.info(f"📏 평균 콘텐츠 길이: {avg_length:.0f}자")
-                    
+                    logger.info("📏 평균 콘텐츠 길이: %.0f자",avg_length)
                     # 샘플 콘텐츠 미리보기
                     sample_result = successful_results[0]
-                    logger.info(f"📄 샘플 응답 미리보기:")
-                    logger.info(f"   쿼리: {sample_result.query}")
-                    logger.info(f"   응답: {sample_result.content[:100]}...")
+                    logger.info("📄 샘플 응답 미리보기:")
+                    logger.info("   쿼리: %s",sample_result.query)
+                    logger.info("   응답: %s",sample_result.content[:100]+"...")
             else:
                 logger.warning("⚠️  모든 검색이 실패했습니다. Details가 생성되지 않을 수 있습니다.")
-            
-            logger.info("=" * 60)
-            
+            logger.info("=" * 60)            
             return search_results
-            
+
         except Exception as e:
             logger.error(f"💥 병렬 검색 전체 실패: {str(e)}")
             logger.error(f"   오류 타입: {type(e).__name__}")
@@ -389,6 +380,16 @@ class ChecklistOrchestrator:
         }
         
         return templates.get(intent_title, templates["계획 세우기"])
+    
+    def _get_default_items_for_padding(self) -> List[str]:
+        """체크리스트 아이템 부족시 패딩용 기본 아이템"""
+        return [
+            "목표 재확인하기",
+            "현재 상황 점검하기", 
+            "다음 단계 계획하기",
+            "필요한 자원 확인하기",
+            "진행 상황 정리하기"
+        ]
     
     async def _match_search_results_to_items(
         self, 
@@ -628,7 +629,6 @@ class ChecklistOrchestrator:
         # 중복 제거
         unique_items = []
         seen_texts = set()
-        
         for item in items:
             text = item["text"].strip()
             if text and text not in seen_texts:
@@ -651,7 +651,7 @@ class ChecklistOrchestrator:
     
     async def _get_fallback_checklist(self, request: QuestionAnswersRequest) -> List[str]:
         """모든 생성 방법 실패 시 사용할 폴백 체크리스트"""
-        
+
         logger.warning("Using fallback checklist due to generation failures")
         return self._get_default_checklist_template(request.selectedIntent)
     
