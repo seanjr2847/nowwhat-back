@@ -76,8 +76,9 @@ First evaluate the goal's complexity and determine the number of questions accor
 **High (5 questions)**: Above 4 + Experience Level/Constraints
 
 ### 3. Question Type Guidelines
-- **Multiple Choice**: When options are clear (time, budget, method, etc.)
-- **Text Input**: Personal situations or details (specific goals, special constraints, etc.)
+- **Single**: When options are clear (time, budget, method, etc.)
+- **Text**: Personal situations or details (specific goals, special constraints, etc.)
+- **Multiple**: Personal situations but generalizable special cases
 
 ### 4. Option Design Principles
 - Mutually Exclusive: Clear, non-overlapping distinctions
