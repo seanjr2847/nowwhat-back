@@ -12,11 +12,6 @@
             "dest": "app/main.py"
         }
     ],
-    "functions": {
-        "app/main.py": {
-            "maxDuration": 60
-        }
-    },
     "env": {
         "PYTHON_VERSION": "3.11"
     }
