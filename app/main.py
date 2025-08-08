@@ -66,6 +66,12 @@ async def startup_event():
 # 전역 예외 핸들러
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # Broken pipe 에러는 클라이언트 연결 종료로 인한 정상적인 상황
+    import errno
+    if isinstance(exc, OSError) and exc.errno == errno.EPIPE:
+        logger.warning(f"Client disconnected (broken pipe): {request.url}")
+        return JSONResponse(status_code=200, content={"status": "client_disconnected"})
+    
     logger.error(f"Global exception: {exc}")
     return JSONResponse(
         status_code=500,
