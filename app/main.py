@@ -20,16 +20,15 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS 미들웨어 설정
+# CORS 미들웨어 설정 - 안전한 방식
 logger.info(f"CORS Origins: {settings.ALLOWED_ORIGINS}")
 logger.info(f"Environment: {settings.ENV}")
 
-# Vercel에서 CORS 문제 해결을 위한 정규식 패턴 사용
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://nowwhat-front.*\.vercel\.app",
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )

@@ -722,8 +722,19 @@ async def generate_questions_stream(
         return response
         
     except Exception as e:
-        logger.error(f"Streaming endpoint error: {str(e)}")
-        raise HTTPException(status_code=500, detail="스트리밍 처리 중 오류가 발생했습니다.")
+        import traceback
+        error_detail = f"Streaming error: {str(e)}\nTraceback: {traceback.format_exc()}"
+        logger.error(error_detail)
+        
+        # 에러 응답에도 CORS 헤더 포함
+        from fastapi.responses import JSONResponse
+        
+        cors_headers = get_cors_headers(request)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "스트리밍 처리 중 오류가 발생했습니다.", "detail": str(e)},
+            headers=cors_headers
+        )
 
 # 기존 엔드포인트들도 유지 (하위 호환성)
 @router.get("/generate/{intent_id}")
