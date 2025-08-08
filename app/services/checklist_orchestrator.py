@@ -294,7 +294,6 @@ class ChecklistOrchestrator:
     
     def _format_answers_for_ai(self, answers: List[AnswerItemSchema]) -> str:
         """답변들을 AI가 이해할 수 있는 형태로 포맷팅"""
-        
         formatted_parts = []
         
         for answer_item in answers:
