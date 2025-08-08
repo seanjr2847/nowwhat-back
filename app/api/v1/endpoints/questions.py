@@ -749,30 +749,38 @@ async def generate_questions_stream(
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
         
-        # CORS 헤더와 스트리밍 헤더 합치기
+        # CORS 헤더와 스트리밍 헤더 합치기 - 브라우저 호환성 강화
         cors_headers = get_cors_headers(request)
         streaming_headers = {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Nginx 버퍼링 비활성화
-            "Transfer-Encoding": "chunked",  # 청크 전송 명시
             "Pragma": "no-cache",
-            "Expires": "0"
+            "Expires": "0",
+            # CORS 헤더를 스트리밍 헤더에 직접 포함
+            "Access-Control-Allow-Origin": cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app"),
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", 
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Expose-Headers": "*"
         }
+        
+        # 브라우저 호환성을 위한 추가 헤더
         streaming_headers.update(cors_headers)
         
-        # CORS 헤더 강화 - 확실히 적용하기 위해 별도 설정
         response = StreamingResponse(
             question_stream(),
             media_type="text/plain; charset=utf-8",
             headers=streaming_headers
         )
         
-        # 추가적으로 CORS 헤더 직접 설정
+        # 브라우저 호환성 강화 - 중복이지만 확실하게 설정
         response.headers["Access-Control-Allow-Origin"] = cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app")
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
         response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
         
         return response
         
@@ -805,14 +813,20 @@ async def generate_questions_stream(
             finally:
                 yield f"data: [DONE]\n\n"
         
-        # CORS 헤더 포함한 스트리밍 응답
+        # CORS 헤더 포함한 스트리밍 응답 - 브라우저 호환성 강화
         cors_headers = get_cors_headers(request)
         streaming_headers = {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
             "Pragma": "no-cache",
-            "Expires": "0"
+            "Expires": "0",
+            # CORS 헤더를 스트리밍 헤더에 직접 포함
+            "Access-Control-Allow-Origin": cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app"),
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Expose-Headers": "*"
         }
         streaming_headers.update(cors_headers)
         
@@ -822,11 +836,13 @@ async def generate_questions_stream(
             headers=streaming_headers
         )
         
-        # 추가 CORS 헤더 설정
+        # 브라우저 호환성 강화 - 중복이지만 확실하게 설정
         response.headers["Access-Control-Allow-Origin"] = cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app")
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
         response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
         
         return response
 
