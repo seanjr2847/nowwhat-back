@@ -27,12 +27,37 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_SEARCHES: int = int(os.getenv("MAX_CONCURRENT_SEARCHES", "15"))
     SEARCH_TIMEOUT_SECONDS: int = int(os.getenv("SEARCH_TIMEOUT_SECONDS", "15"))
     
-    # CORS 설정 - 프로덕션용
-    ALLOWED_ORIGINS: List[str] = [
-        "https://nowwhat-front.vercel.app",  # 메인 프로덕션 도메인
-        "http://localhost:3000",  # 로컬 개발용
-        "http://localhost:8080"   # 로컬 개발용
-    ]
+    # CORS 설정 - 환경 변수 기반
+    ALLOWED_ORIGINS: List[str] = []
+    ALLOW_ALL_ORIGINS: bool = False
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 환경 변수에서 CORS 도메인 읽기 (쉼표로 구분)
+        cors_origins = os.getenv("ALLOWED_ORIGINS", "")
+        
+        # CORS_ALLOW_ALL 환경 변수가 true이면 모든 origin 허용 (개발용)
+        allow_all = os.getenv("CORS_ALLOW_ALL", "false").lower() == "true"
+        
+        if allow_all and self.ENV == "development":
+            self.ALLOW_ALL_ORIGINS = True
+            self.ALLOWED_ORIGINS = ["*"]
+        elif cors_origins:
+            self.ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(",")]
+        else:
+            # 기본값 설정
+            if self.ENV == "development":
+                self.ALLOWED_ORIGINS = [
+                    "http://localhost:3000",
+                    "http://localhost:8080", 
+                    "http://127.0.0.1:3000"
+                ]
+            else:
+                # 프로덕션: 명시적 도메인들
+                self.ALLOWED_ORIGINS = [
+                    "https://nowwhat-front.vercel.app",
+                    "https://nowwhat-front-git-main.vercel.app",
+                ]
     
     # 로깅 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

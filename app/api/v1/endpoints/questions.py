@@ -29,24 +29,43 @@ router = APIRouter()
 
 
 def get_cors_headers(request: Request = None) -> dict:
-    """프로덕션용 CORS 헤더 생성"""
+    """동적 CORS 헤더 생성"""
     # 요청의 Origin 헤더 확인
     origin = None
     if request:
         origin = request.headers.get("origin")
+        logger.debug(f"Request origin: {origin}")
     
-    # 허용된 Origin인지 확인
-    allowed_origin = "https://nowwhat-front.vercel.app"  # 프로덕션 도메인
-    if origin and origin in settings.ALLOWED_ORIGINS:
-        allowed_origin = origin
+    # 허용된 Origin 확인 및 결정
+    allowed_origin = None
     
-    return {
+    if origin:
+        # 정확한 매치 확인
+        if origin in settings.ALLOWED_ORIGINS:
+            allowed_origin = origin
+        # Vercel 도메인 패턴 확인
+        elif origin.endswith(".vercel.app") and ("nowwhat-front" in origin):
+            allowed_origin = origin
+            logger.info(f"Allowing Vercel domain: {origin}")
+        # 개발 환경에서는 localhost 패턴 허용
+        elif settings.ENV == "development" and ("localhost" in origin or "127.0.0.1" in origin):
+            allowed_origin = origin
+    
+    # 기본값 설정
+    if not allowed_origin:
+        allowed_origin = settings.ALLOWED_ORIGINS[0] if settings.ALLOWED_ORIGINS else "https://nowwhat-front.vercel.app"
+    
+    headers = {
         "Access-Control-Allow-Origin": allowed_origin,
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
         "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Max-Age": "86400"  # 24시간
+        "Access-Control-Max-Age": "86400",  # 24시간
+        "Access-Control-Expose-Headers": "*"
     }
+    
+    logger.debug(f"CORS headers: {headers}")
+    return headers
 
 
 # JSON 완전성 검증 함수

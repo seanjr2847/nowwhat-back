@@ -21,12 +21,16 @@ app = FastAPI(
 )
 
 # CORS 미들웨어 설정
+logger.info(f"CORS Origins: {settings.ALLOWED_ORIGINS}")
+logger.info(f"Environment: {settings.ENV}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # API 라우터 포함
