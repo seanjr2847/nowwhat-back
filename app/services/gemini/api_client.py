@@ -178,6 +178,7 @@ class GeminiApiClient:
         - generator_content_stream() 함수로 청크 단위 데이터 수신
         - 스트리밍 중 오류 발생 시 진단 정보와 함께 예외 발생
         - 각 청크에 대한 로깅 및 오류 처리 포함
+        - Vercel 서버리스 환경 최적화된 async 스트리밍
         """
         chunks_received = 0
         total_chars = 0
@@ -193,32 +194,40 @@ class GeminiApiClient:
                 top_k=GeminiConfig.TOP_K
             )
             
-            # 스트리밍 응답 생성
-            response_stream = await asyncio.to_thread(
-                self.model.generate_content,
-                prompt,
-                generation_config=generation_config,
-                stream=True
-            )
-            
             logger.debug("✅ Gemini streaming response initiated")
             
-            # 스트리밍 응답 처리
-            for chunk in response_stream:
-                chunk_text = self._extract_chunk_text(chunk)
+            # Vercel 서버리스 최적화: 직접적인 sync 스트리밍
+            try:
+                response_stream = self.model.generate_content(
+                    prompt,
+                    generation_config=generation_config,
+                    stream=True
+                )
                 
-                if chunk_text:
-                    chunks_received += 1
-                    total_chars += len(chunk_text)
+                # 비동기 청크 처리로 변경
+                for chunk in response_stream:
+                    # 클라이언트 연결 상태 체크를 위한 yield 포인트
+                    await asyncio.sleep(0)  # Allow other coroutines to run
                     
-                    # 주기적으로 진행 상황 로깅
-                    if chunks_received % 10 == 0:
-                        logger.debug(f"📊 Streaming: {chunks_received} chunks, {total_chars} chars")
+                    chunk_text = self._extract_chunk_text(chunk)
                     
-                    yield chunk_text
-            
-            logger.info(f"📋 Stream completed: {chunks_received} chunks, {total_chars} chars")
-                                    
+                    if chunk_text:
+                        chunks_received += 1
+                        total_chars += len(chunk_text)
+                        
+                        # 주기적으로 진행 상황 로깅
+                        if chunks_received % 5 == 0:  # 더 자주 로깅
+                            logger.debug(f"📊 Streaming: {chunks_received} chunks, {total_chars} chars")
+                        
+                        yield chunk_text
+                
+                logger.info(f"📋 Stream completed: {chunks_received} chunks, {total_chars} chars")
+                
+            except (BrokenPipeError, ConnectionResetError, OSError) as conn_error:
+                logger.warning(f"🔌 Client disconnected during streaming: {str(conn_error)}")
+                # 클라이언트 연결 끊김은 정상적인 상황으로 처리
+                return
+                
         except Exception as e:
             logger.error(f"🚨 Streaming API error: {str(e)}")
             logger.debug(f"Error details - Chunks received: {chunks_received}, Total chars: {total_chars}")

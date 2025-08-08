@@ -623,24 +623,56 @@ async def generate_questions_stream(
                 start_data = {"status": "started", "message": f"질문 생성을 시작합니다... [{stream_id}]"}
                 yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
                 
+                # 연결 상태 체크를 위한 초기 flush
+                await asyncio.sleep(0.1)
+                
                 # Pro Plan에서 실제 스트리밍 시도 (더 공격적으로)
                 logger.info(f"🌊 Pro Plan streaming attempt [{stream_id}]")
                 
-                # Gemini 스트리밍 호출 (Pro Plan 최적화)
-                async for chunk in gemini_service.generate_questions_stream(
-                    goal=goal,
-                    intent_title=intent_title,
-                    user_country=user_country,
-                    user_language=user_language,
-                    country_option=country_option
-                ):
-                    accumulated_content += chunk
-                    chunk_data = {
-                        "status": "generating",
-                        "chunk": chunk,
-                        "timestamp": asyncio.get_event_loop().time()
-                    }
-                    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                # Gemini 스트리밍 호출 (Pro Plan 최적화, 타임아웃 보호)
+                try:
+                    streaming_task = gemini_service.generate_questions_stream(
+                        goal=goal,
+                        intent_title=intent_title,
+                        user_country=user_country,
+                        user_language=user_language,
+                        country_option=country_option
+                    )
+                    
+                    # 타임아웃을 가진 스트리밍 처리
+                    start_time = asyncio.get_event_loop().time()
+                    async for chunk in streaming_task:
+                        # 90초 타임아웃 체크
+                        if asyncio.get_event_loop().time() - start_time > 90:
+                            logger.warning(f"🕒 Manual timeout triggered [{stream_id}]")
+                            raise asyncio.TimeoutError("Manual timeout after 90 seconds")
+                        
+                        accumulated_content += chunk
+                        chunk_data = {
+                            "status": "generating", 
+                            "chunk": chunk,
+                            "timestamp": asyncio.get_event_loop().time()
+                        }
+                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                        
+                        # 연결 상태 주기적 체크
+                        await asyncio.sleep(0.01)
+                            
+                except (asyncio.TimeoutError, OSError, BrokenPipeError) as timeout_error:
+                    logger.warning(f"🕒 Streaming timeout or connection lost [{stream_id}]: {str(timeout_error)}")
+                    
+                    # 타임아웃 시 즉시 폴백 데이터 생성
+                    fallback_content = await generate_fallback_questions_inline(
+                        goal, intent_title, user_country, user_language, country_option
+                    )
+                    if fallback_content:
+                        yield f"data: {json.dumps({'status': 'timeout_recovery', 'chunk': fallback_content}, ensure_ascii=False)}\n\n"
+                        accumulated_content = fallback_content
+                    else:
+                        # 최후의 수단
+                        error_data = {"status": "error", "message": "스트리밍 타임아웃이 발생했습니다. 일반 API를 사용해주세요."}
+                        yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                        return
                 
                 logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars")
                 
