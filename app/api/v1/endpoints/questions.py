@@ -615,19 +615,48 @@ async def generate_questions_stream(
         async def question_stream():
             accumulated_content = ""
             try:
-                # Vercel 환경 감지
+                # Pro Plan 환경 최적화
                 is_vercel = os.getenv("VERCEL") == "1"
-                logger.info(f"🌊 Environment detection [{stream_id}]: Vercel={is_vercel}")
+                logger.info(f"🌊 Environment detection [{stream_id}]: Vercel={is_vercel} (Pro Plan)")
                 
                 # 시작 신호
                 start_data = {"status": "started", "message": f"질문 생성을 시작합니다... [{stream_id}]"}
                 yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
                 
-                if is_vercel:
-                    # Vercel 환경: 빠른 비스트리밍 응답으로 대체
-                    logger.info(f"🚀 Vercel detected - using fast non-streaming response [{stream_id}]")
+                try:
+                    # Pro Plan에서 실제 스트리밍 시도
+                    logger.info(f"🌊 Attempting real streaming [{stream_id}]")
                     
-                    # 빠른 질문 생성 (스트리밍 아님)
+                    # Gemini 스트리밍 호출 (Pro Plan 최적화 버전)
+                    streaming_timeout = 45 if is_vercel else 120  # Pro Plan은 45초 타임아웃
+                    start_time = asyncio.get_event_loop().time()
+                    
+                    async for chunk in gemini_service.generate_questions_stream(
+                        goal=goal,
+                        intent_title=intent_title,
+                        user_country=user_country,
+                        user_language=user_language,
+                        country_option=country_option
+                    ):
+                        # 타임아웃 체크
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - start_time > streaming_timeout:
+                            logger.warning(f"⚠️ Streaming timeout reached [{stream_id}], falling back")
+                            break
+                            
+                        accumulated_content += chunk
+                        chunk_data = {
+                            "status": "generating",
+                            "chunk": chunk,
+                            "timestamp": current_time
+                        }
+                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                        
+                except Exception as streaming_error:
+                    logger.error(f"🚨 Streaming failed [{stream_id}]: {str(streaming_error)}")
+                    logger.info(f"🔄 Falling back to fast response [{stream_id}]")
+                    
+                    # 스트리밍 실패시 빠른 응답으로 폴백
                     questions = await gemini_service.generate_questions(
                         goal=goal,
                         intent_title=intent_title,
@@ -652,31 +681,11 @@ async def generate_questions_stream(
                                 "timestamp": asyncio.get_event_loop().time()
                             }
                             yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-                            await asyncio.sleep(0.05)  # 50ms 지연으로 스트리밍 효과
+                            await asyncio.sleep(0.03)  # 30ms 지연으로 빠른 전송
                         
                         accumulated_content = questions_json
                     else:
-                        raise Exception("Failed to generate questions")
-                        
-                else:
-                    # 로컬 환경: 실제 스트리밍 사용
-                    logger.info(f"🌊 Local environment - using real streaming [{stream_id}]")
-                    
-                    # Gemini 스트리밍 호출 (검증 강화 버전)
-                    async for chunk in gemini_service.generate_questions_stream(
-                        goal=goal,
-                        intent_title=intent_title,
-                        user_country=user_country,
-                        user_language=user_language,
-                        country_option=country_option
-                    ):
-                        accumulated_content += chunk
-                        chunk_data = {
-                            "status": "generating",
-                            "chunk": chunk,
-                            "timestamp": asyncio.get_event_loop().time()
-                        }
-                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                        raise Exception("Both streaming and fallback failed")
                 
                 logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars")
                 
