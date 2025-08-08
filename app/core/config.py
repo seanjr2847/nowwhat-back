@@ -28,11 +28,9 @@ class Settings(BaseSettings):
     SEARCH_TIMEOUT_SECONDS: int = int(os.getenv("SEARCH_TIMEOUT_SECONDS", "15"))
     
     # CORS 설정 - 환경 변수 기반
-    ALLOWED_ORIGINS: List[str] = []
-    ALLOW_ALL_ORIGINS: bool = False
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    @property
+    def ALLOWED_ORIGINS(self) -> List[str]:
+        """동적으로 CORS Origin 목록 생성"""
         # 환경 변수에서 CORS 도메인 읽기 (쉼표로 구분)
         cors_origins = os.getenv("ALLOWED_ORIGINS", "")
         
@@ -40,21 +38,20 @@ class Settings(BaseSettings):
         allow_all = os.getenv("CORS_ALLOW_ALL", "false").lower() == "true"
         
         if allow_all and self.ENV == "development":
-            self.ALLOW_ALL_ORIGINS = True
-            self.ALLOWED_ORIGINS = ["*"]
+            return ["*"]
         elif cors_origins:
-            self.ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(",")]
+            return [origin.strip() for origin in cors_origins.split(",")]
         else:
             # 기본값 설정
             if self.ENV == "development":
-                self.ALLOWED_ORIGINS = [
+                return [
                     "http://localhost:3000",
                     "http://localhost:8080", 
                     "http://127.0.0.1:3000"
                 ]
             else:
                 # 프로덕션: 명시적 도메인들
-                self.ALLOWED_ORIGINS = [
+                return [
                     "https://nowwhat-front.vercel.app",
                     "https://nowwhat-front-git-main.vercel.app",
                 ]
