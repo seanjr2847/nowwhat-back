@@ -18,7 +18,7 @@ from app.services.gemini.facade import GeminiService, gemini_service
 # 개별 서비스들도 import 가능하도록 노출 (선택적 사용)
 from app.services.gemini import (
     IntentAnalysisService,
-    QuestionGenerationService, 
+    QuestionGenerationService,
     SearchService,
     StreamingService,
     GeminiApiClient,

@@ -203,6 +203,24 @@ class GeminiService:
         """
         logger.debug(f"Facade: Providing cached questions template for intent: '{intent_title}'")
         return self.question_service._get_cached_template(intent_title)
+    
+    # ===========================================
+    # 범용 API 호출 메서드 (하위 호환성)
+    # ===========================================
+    
+    async def _call_gemini_api(self, prompt: str) -> str:
+        """범용 Gemini API 호출 (하위 호환성)
+        
+        기존 코드에서 직접 API 호출이 필요한 경우를 위한 래퍼
+        checklist_orchestrator.py 등에서 사용
+        """
+        logger.debug("Facade: Delegating generic API call to ApiClient")
+        return await self.api_client.call_api(prompt)
+    
+    async def _call_gemini_api_with_search(self, prompt: str) -> str:
+        """검색 기능이 포함된 Gemini API 호출 (하위 호환성)"""
+        logger.debug("Facade: Delegating search-enabled API call to ApiClient")
+        return await self.api_client.call_api_with_search(prompt)
 
 
 # 기존 코드와의 완전한 호환성을 위한 인스턴스 생성
