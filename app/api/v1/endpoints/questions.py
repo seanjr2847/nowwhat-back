@@ -562,6 +562,7 @@ async def generate_questions_stream(
     
     Server-Sent Events (SSE) 형식으로 실시간 응답을 제공합니다.
     """
+    stream_id = None
     try:
         # 요청에서 필수 정보 추출
         session_id = question_request.sessionId
@@ -722,6 +723,22 @@ async def generate_questions_stream(
                 
             except Exception as e:
                 logger.error(f"🚨 Enhanced streaming error [{stream_id}]: {str(e)}")
+                import traceback
+                logger.error(f"🚨 Stack trace [{stream_id}]: {traceback.format_exc()}")
+                
+                # 스트리밍 오류 시에도 완전한 질문 제공 시도
+                try:
+                    fallback_content = await generate_fallback_questions_inline(
+                        goal, intent_title, user_country, user_language, country_option
+                    )
+                    if fallback_content:
+                        yield f"data: {json.dumps({'status': 'error_recovery', 'chunk': fallback_content}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'status': 'completed', 'message': '오류 복구 완료'}, ensure_ascii=False)}\n\n"
+                        yield f"data: [DONE]\n\n"
+                        return
+                except:
+                    pass  # 폴백도 실패하면 아래 오류 응답으로
+                
                 error_data = {
                     "status": "error", 
                     "error": str(e),
@@ -762,17 +779,56 @@ async def generate_questions_stream(
     except Exception as e:
         import traceback
         error_detail = f"Streaming error: {str(e)}\nTraceback: {traceback.format_exc()}"
-        logger.error(error_detail)
+        logger.error(f"🚨 Top-level streaming error [{stream_id}]: {error_detail}")
         
-        # 에러 응답에도 CORS 헤더 포함
-        from fastapi.responses import JSONResponse
+        # 최상위 예외에서도 스트리밍 응답으로 처리
+        async def error_recovery_stream():
+            try:
+                # 오류 발생 시에도 완전한 질문 제공 시도
+                fallback_content = await generate_fallback_questions_inline(
+                    question_request.goal, 
+                    question_request.intentTitle,
+                    question_request.userCountry, 
+                    question_request.userLanguage, 
+                    question_request.countryOption
+                )
+                if fallback_content:
+                    yield f"data: {json.dumps({'status': 'emergency_recovery', 'chunk': fallback_content}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'status': 'completed', 'message': '긴급 복구 완료'}, ensure_ascii=False)}\n\n"
+                else:
+                    # 최후의 수단
+                    error_data = {"status": "error", "message": "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."}
+                    yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            except:
+                error_data = {"status": "error", "message": "심각한 오류가 발생했습니다. 페이지를 새로고침해주세요."}
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            finally:
+                yield f"data: [DONE]\n\n"
         
+        # CORS 헤더 포함한 스트리밍 응답
         cors_headers = get_cors_headers(request)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "스트리밍 처리 중 오류가 발생했습니다.", "detail": str(e)},
-            headers=cors_headers
+        streaming_headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+        streaming_headers.update(cors_headers)
+        
+        response = StreamingResponse(
+            error_recovery_stream(),
+            media_type="text/plain; charset=utf-8",
+            headers=streaming_headers
         )
+        
+        # 추가 CORS 헤더 설정
+        response.headers["Access-Control-Allow-Origin"] = cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app")
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
 
 # 기존 엔드포인트들도 유지 (하위 호환성)
 @router.get("/generate/{intent_id}")
