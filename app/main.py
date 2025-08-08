@@ -24,11 +24,12 @@ app = FastAPI(
 logger.info(f"CORS Origins: {settings.ALLOWED_ORIGINS}")
 logger.info(f"Environment: {settings.ENV}")
 
+# Vercel에서 CORS 문제 해결을 위한 정규식 패턴 사용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://nowwhat-front.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )

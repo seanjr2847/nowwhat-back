@@ -595,11 +595,20 @@ async def generate_questions_stream(
             }
             streaming_headers.update(cors_headers)
             
-            return StreamingResponse(
+            # 에러 응답에도 CORS 헤더 강화
+            response = StreamingResponse(
                 error_stream(),
                 media_type="text/plain; charset=utf-8",
                 headers=streaming_headers
             )
+            
+            # 추가적으로 CORS 헤더 직접 설정
+            response.headers["Access-Control-Allow-Origin"] = cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app")
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            
+            return response
         
         # 2. 스트리밍 응답 생성 (강화된 완전성 검증)
         async def question_stream():
@@ -697,11 +706,20 @@ async def generate_questions_stream(
         }
         streaming_headers.update(cors_headers)
         
-        return StreamingResponse(
+        # CORS 헤더 강화 - 확실히 적용하기 위해 별도 설정
+        response = StreamingResponse(
             question_stream(),
             media_type="text/plain; charset=utf-8",
             headers=streaming_headers
         )
+        
+        # 추가적으로 CORS 헤더 직접 설정
+        response.headers["Access-Control-Allow-Origin"] = cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app")
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
         
     except Exception as e:
         logger.error(f"Streaming endpoint error: {str(e)}")
