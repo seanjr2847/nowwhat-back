@@ -170,6 +170,66 @@ class GeminiApiClient:
             logger.info("Falling back to regular Gemini API without search")
             return await self.call_api(prompt)
     
+    async def call_api_for_checklist(self, prompt: str) -> str:
+        """Gemini API 체크리스트 생성 전용 호출 (Structured Output)
+        
+        비즈니스 로직:
+        - 체크리스트 전용 JSON 스키마 적용으로 깨끗한 구조화된 응답
+        - 마크다운 블록(```json) 없이 순수 JSON만 응답
+        - 체크리스트 항목 개수 및 구조 보장 (3-10개)
+        - title과 description 필드 구조화
+        """
+        try:
+            logger.debug(f"Calling Gemini API for checklist generation (prompt length: {len(prompt)} chars)")
+            
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=GeminiConfig.MAX_OUTPUT_TOKENS,
+                    temperature=GeminiConfig.TEMPERATURE,
+                    top_p=GeminiConfig.TOP_P,
+                    top_k=GeminiConfig.TOP_K,
+                    response_mime_type="application/json",
+                    response_schema=self._create_checklist_schema()
+                )
+            )
+            
+            # 응답 처리
+            if not response:
+                logger.error("Gemini returned None response for checklist")
+                raise GeminiAPIError("Gemini returned None response for checklist")
+            
+            # Safety rating 및 finish reason 확인
+            self._log_response_metadata(response)
+            
+            response_text = self._extract_text_from_response(response)
+            
+            logger.debug(f"Gemini checklist response received (length: {len(response_text) if response_text else 0})")
+            
+            if not response_text or not response_text.strip():
+                logger.error("Gemini returned empty checklist response")
+                raise GeminiAPIError("Gemini returned empty checklist response")
+            
+            # JSON 형식 검증
+            try:
+                import json
+                parsed = json.loads(response_text)
+                if 'items' not in parsed or not isinstance(parsed['items'], list):
+                    raise ValueError("Invalid checklist structure")
+                logger.info(f"✅ Generated structured checklist with {len(parsed['items'])} items")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f"Invalid JSON structure in checklist response: {e}")
+                raise GeminiResponseError(f"Invalid checklist JSON structure: {e}")
+                
+            return response_text
+            
+        except (GeminiAPIError, GeminiResponseError):
+            raise
+        except Exception as e:
+            logger.error(f"Gemini checklist API call error: {str(e)}")
+            raise GeminiAPIError(f"Checklist generation failed: {str(e)}")
+    
     async def call_api_stream(self, prompt: str) -> AsyncGenerator[str, None]:
         """Gemini API 실시간 스트리밍 호출
         
@@ -321,6 +381,44 @@ class GeminiApiClient:
                     if hasattr(candidate.grounding_metadata, 'grounding_chunks'):
                         logger.debug(f"Found {len(candidate.grounding_metadata.grounding_chunks)} grounding chunks")
     
+    def _create_checklist_schema(self) -> Dict[str, Any]:
+        """체크리스트 생성용 JSON 스키마
+        
+        비즈니스 로직:
+        - 체크리스트 항목들을 구조화된 JSON으로 응답받기 위한 스키마
+        - 각 항목은 title(필수)과 description(선택) 포함
+        - 마크다운 블록 없이 깨끗한 JSON만 응답
+        - ```json 같은 불필요한 텍스트 완전 제거
+        """
+        return {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "체크리스트 항목 제목 (핵심 작업 내용)"
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "항목에 대한 상세 설명 (선택사항, 빈 문자열 가능)"
+                            }
+                        },
+                        "required": ["title"],
+                        "additionalProperties": False
+                    },
+                    "description": "체크리스트 항목들",
+                    "minItems": 3,
+                    "maxItems": 10
+                }
+            },
+            "required": ["items"],
+            "additionalProperties": False
+        }
+
     def _create_search_schema(self) -> Dict[str, Any]:
         """검색 응답용 JSON 스키마 생성
         

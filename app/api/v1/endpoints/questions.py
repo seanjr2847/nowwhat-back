@@ -630,6 +630,13 @@ async def generate_questions_stream(
                 # Pro Plan에서 실제 스트리밍 시도 (더 공격적으로)
                 logger.info(f"🌊 Pro Plan streaming attempt [{stream_id}]")
                 
+                # 질문별 스트리밍을 위한 파서 상태
+                parsed_questions = []
+                current_question_buffer = ""
+                question_count = 0
+                in_question_object = False
+                brace_depth = 0
+                
                 # Gemini 스트리밍 호출 (Pro Plan 최적화, 타임아웃 보호)
                 try:
                     streaming_task = gemini_service.generate_questions_stream(
@@ -649,15 +656,50 @@ async def generate_questions_stream(
                             raise asyncio.TimeoutError("Manual timeout after 90 seconds")
                         
                         accumulated_content += chunk
-                        chunk_data = {
-                            "status": "generating", 
-                            "chunk": chunk,
-                            "timestamp": asyncio.get_event_loop().time()
-                        }
-                        yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                        current_question_buffer += chunk
+                        
+                        # 질문 객체 파싱 시도
+                        for char in chunk:
+                            if char == '{':
+                                if brace_depth == 0 and '"id"' in current_question_buffer:
+                                    in_question_object = True
+                                brace_depth += 1
+                            elif char == '}':
+                                brace_depth -= 1
+                                if brace_depth == 0 and in_question_object:
+                                    # 완전한 질문 객체를 찾음
+                                    try:
+                                        # 현재 버퍼에서 마지막 완성된 객체 추출
+                                        question_end = current_question_buffer.rfind('}') + 1
+                                        question_start = current_question_buffer.rfind('{', 0, question_end)
+                                        
+                                        if question_start != -1:
+                                            question_json = current_question_buffer[question_start:question_end]
+                                            question_obj = json.loads(question_json)
+                                            
+                                            # 유효한 질문 객체인지 확인
+                                            if all(field in question_obj for field in ['id', 'text', 'type']):
+                                                question_count += 1
+                                                parsed_questions.append(question_obj)
+                                                
+                                                # 개별 질문 즉시 전송
+                                                single_question_data = {
+                                                    "status": "question_ready",
+                                                    "question": question_obj,
+                                                    "question_number": question_count,
+                                                    "timestamp": asyncio.get_event_loop().time()
+                                                }
+                                                yield f"data: {json.dumps(single_question_data, ensure_ascii=False)}\n\n"
+                                                logger.info(f"📤 Question {question_count} sent immediately [{stream_id}]")
+                                                
+                                                # 버퍼 정리
+                                                current_question_buffer = current_question_buffer[question_end:]
+                                                in_question_object = False
+                                    except json.JSONDecodeError:
+                                        pass  # 파싱 실패시 계속 누적
                         
                         # 연결 상태 주기적 체크
-                        await asyncio.sleep(0.01)
+                        await asyncio.sleep(0.001)  # 더 빠른 응답을 위해 줄임
                             
                 except (asyncio.TimeoutError, OSError, BrokenPipeError) as timeout_error:
                     logger.warning(f"🕒 Streaming timeout or connection lost [{stream_id}]: {str(timeout_error)}")
@@ -675,50 +717,96 @@ async def generate_questions_stream(
                         yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                         return
                 
-                logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars")
+                logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars, questions sent: {question_count}")
                 
-                # 최종 JSON 완전성 검증
-                is_complete, parsed_questions = await verify_and_fix_json_completeness(accumulated_content, stream_id)
-                
-                if is_complete:
-                    # 완료 신호 (정상)
+                # 이미 파싱된 질문들이 있으면 성공으로 처리
+                if len(parsed_questions) > 0:
+                    # 완료 신호 (정상) - 질문별 스트리밍 성공
                     complete_data = {
                         "status": "completed", 
                         "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
                         "validated": True,
-                        "total_chars": len(accumulated_content)
+                        "total_questions": len(parsed_questions),
+                        "streaming_mode": "per_question"
                     }
                     yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
                 else:
-                    # 불완전한 데이터 감지 시 자동으로 완성하여 전송
-                    logger.warning(f"🚨 Incomplete JSON detected [{stream_id}], auto-completing and sending full data")
+                    # 질문이 하나도 파싱되지 않은 경우 - 전체 JSON 파싱 시도
+                    logger.warning(f"🚨 No questions parsed via streaming [{stream_id}], trying full JSON parse")
                     
-                    # 자동 완성 또는 폴백 데이터 생성
-                    if parsed_questions:
-                        # 부분적으로 파싱된 데이터가 있으면 완성
-                        fixed_json = json.dumps({"questions": parsed_questions}, ensure_ascii=False, indent=2)
-                        yield f"data: {json.dumps({'status': 'fixed_partial', 'chunk': fixed_json}, ensure_ascii=False)}\n\n"
-                        logger.info(f"✅ Auto-completed partial data [{stream_id}]: {len(parsed_questions)} questions")
+                    # 전체 JSON 완전성 검증 시도
+                    is_complete, full_parsed_questions = await verify_and_fix_json_completeness(accumulated_content, stream_id)
+                    
+                    if is_complete and full_parsed_questions:
+                        # 전체 파싱 성공 - 한 번에 모든 질문 전송
+                        for idx, question in enumerate(full_parsed_questions):
+                            question_data = {
+                                "status": "question_ready",
+                                "question": question,
+                                "question_number": idx + 1,
+                                "batch_mode": True
+                            }
+                            yield f"data: {json.dumps(question_data, ensure_ascii=False)}\n\n"
+                        
+                        complete_data = {
+                            "status": "completed",
+                            "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
+                            "total_questions": len(full_parsed_questions),
+                            "streaming_mode": "batch_fallback"
+                        }
+                        yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
                     else:
-                        # 아예 파싱 불가능한 경우 새로 생성
-                        logger.info(f"🔄 Generating fresh questions due to corrupted stream [{stream_id}]")
-                        fallback_questions = await generate_fallback_questions_inline(
-                            goal, intent_title, user_country, user_language, country_option
-                        )
-                        if fallback_questions:
-                            yield f"data: {json.dumps({'status': 'regenerated', 'chunk': fallback_questions}, ensure_ascii=False)}\n\n"
-                            logger.info(f"✅ Fresh questions generated and sent [{stream_id}]")
-                    
-                    # 어떤 경우든 사용자는 완전한 데이터를 받았다고 알림
-                    complete_data = {
-                        "status": "completed",
-                        "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
-                        "auto_completed": True
-                    }
-                    yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                        # 파싱 불가능한 경우 - 기본 템플릿 사용 (API 호출 없이)
+                        logger.info(f"🔄 Using default template due to corrupted stream [{stream_id}]")
+                        
+                        # 하드코딩된 기본 질문들을 개별적으로 전송
+                        default_questions_list = [
+                            {
+                                "id": "q_default_1",
+                                "text": f"{intent_title}을(를) 위해 언제까지 목표를 달성하고 싶으신가요?",
+                                "type": "multiple",
+                                "options": [
+                                    {"id": "opt_1week", "text": "1주일 내", "value": "1week"},
+                                    {"id": "opt_1month", "text": "1달 내", "value": "1month"},
+                                    {"id": "opt_3months", "text": "3달 내", "value": "3months"},
+                                    {"id": "opt_flexible", "text": "유연하게", "value": "flexible"}
+                                ],
+                                "category": "timeline"
+                            },
+                            {
+                                "id": "q_default_2",
+                                "text": "가장 중요하게 생각하는 것은 무엇인가요?",
+                                "type": "multiple",
+                                "options": [
+                                    {"id": "opt_quality", "text": "품질과 완성도", "value": "quality"},
+                                    {"id": "opt_speed", "text": "빠른 시작", "value": "speed"},
+                                    {"id": "opt_cost", "text": "비용 효율", "value": "cost"},
+                                    {"id": "opt_learning", "text": "학습과 경험", "value": "learning"}
+                                ],
+                                "category": "priority"
+                            }
+                        ]
+                        
+                        # 기본 질문들을 개별적으로 전송
+                        for idx, question in enumerate(default_questions_list):
+                            question_data = {
+                                "status": "question_ready",
+                                "question": question,
+                                "question_number": idx + 1,
+                                "default_template": True
+                            }
+                            yield f"data: {json.dumps(question_data, ensure_ascii=False)}\n\n"
+                        
+                        # 어떤 경우든 사용자는 완전한 데이터를 받았다고 알림
+                        complete_data = {
+                            "status": "completed",
+                            "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
+                            "total_questions": len(default_questions_list),
+                            "streaming_mode": "default_template"
+                        }
+                        yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
                 
-                # [DONE] 신호 전솨 전 마지막 검증
-                await asyncio.sleep(0.1)  # 짧은 대기 시간
+                # [DONE] 신호 즉시 전송 (불필요한 대기 제거)
                 yield f"data: [DONE]\n\n"
                 
             except Exception as e:

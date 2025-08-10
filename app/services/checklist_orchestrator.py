@@ -229,19 +229,58 @@ class ChecklistOrchestrator:
     
     
     async def _call_gemini_for_checklist(self, prompt: str) -> List[str]:
-        """Gemini API 호출하여 체크리스트 생성"""
+        """Gemini API 호출하여 체크리스트 생성 (Structured Output 사용)"""
         
         try:
-            # gemini_service의 기존 API 호출 메서드 활용
-            response = await gemini_service._call_gemini_api(prompt)
+            # 체크리스트 전용 스키마를 사용한 API 호출
+            response = await gemini_service._call_gemini_api_for_checklist(prompt)
             
-            # 응답 파싱
-            checklist_items = self._parse_checklist_response(response)
+            # JSON 응답 파싱 (스키마로 인해 이미 구조화된 JSON)
+            checklist_items = self._parse_structured_checklist_response(response)
             
             return checklist_items
             
         except Exception as e:
-            logger.error(f"Gemini API call for checklist failed: {str(e)}")
+            logger.error(f"Gemini structured checklist generation failed: {str(e)}")
+            raise
+    
+    def _parse_structured_checklist_response(self, response: str) -> List[str]:
+        """구조화된 JSON 체크리스트 응답 파싱
+        
+        비즈니스 로직:
+        - Structured Output으로 받은 깨끗한 JSON 파싱
+        - 스키마 검증을 통해 이미 올바른 구조 보장
+        - title 필드에서 체크리스트 항목 추출
+        - ```json 같은 마크다운 블록 없음
+        """
+        import json
+        
+        try:
+            parsed = json.loads(response)
+            
+            if 'items' not in parsed or not isinstance(parsed['items'], list):
+                logger.error("Invalid checklist JSON structure: missing 'items' array")
+                raise ValueError("Invalid checklist structure")
+            
+            checklist_items = []
+            for item in parsed['items']:
+                if isinstance(item, dict) and 'title' in item:
+                    title = item['title'].strip()
+                    if len(title) > 5:  # 최소 길이 확인
+                        checklist_items.append(title)
+                else:
+                    logger.warning(f"Skipping invalid checklist item: {item}")
+            
+            logger.info(f"✅ Parsed {len(checklist_items)} structured checklist items")
+            return checklist_items
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON checklist response: {str(e)}")
+            # 스키마를 사용했음에도 JSON 파싱 실패 시 폴백
+            logger.warning("Falling back to legacy text parsing method")
+            return self._parse_checklist_response(response)
+        except Exception as e:
+            logger.error(f"Failed to parse structured checklist response: {str(e)}")
             raise
     
     def _parse_checklist_response(self, response: str) -> List[str]:

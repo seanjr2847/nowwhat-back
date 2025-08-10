@@ -221,6 +221,17 @@ class GeminiService:
         """검색 기능이 포함된 Gemini API 호출 (하위 호환성)"""
         logger.debug("Facade: Delegating search-enabled API call to ApiClient")
         return await self.api_client.call_api_with_search(prompt)
+    
+    async def _call_gemini_api_for_checklist(self, prompt: str) -> str:
+        """체크리스트 생성 전용 Gemini API 호출 (Structured Output)
+        
+        비즈니스 로직:
+        - 체크리스트 전용 JSON 스키마를 사용한 구조화된 응답
+        - 마크다운 블록 없이 깨끗한 JSON만 반환
+        - checklist_orchestrator.py에서 사용하기 위한 전용 메서드
+        """
+        logger.debug("Facade: Delegating checklist generation to ApiClient with schema")
+        return await self.api_client.call_api_for_checklist(prompt)
 
 
 # 기존 코드와의 완전한 호환성을 위한 인스턴스 생성
