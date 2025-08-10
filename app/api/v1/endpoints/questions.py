@@ -1013,12 +1013,12 @@ async def generate_questions_stream(
                             "streaming_mode": "batch_processing"
                         }
                         yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
-                else:
-                    # 파싱 불가능한 경우 - 기본 템플릿 사용 (API 호출 없이)
-                    logger.info(f"🔄 Using default template due to corrupted stream [{stream_id}]")
-                    
-                    # 하드코딩된 기본 질문들을 개별적으로 전송
-                    default_questions_list = [
+                    else:
+                        # 파싱 불가능한 경우 - 기본 템플릿 사용 (API 호출 없이)
+                        logger.info(f"🔄 Using default template due to corrupted stream [{stream_id}]")
+                        
+                        # 하드코딩된 기본 질문들을 개별적으로 전송
+                        default_questions_list = [
                         {
                             "id": "q_default_1",
                             "text": f"{intent_title}을(를) 위해 언제까지 목표를 달성하고 싶으신가요?",
@@ -1043,26 +1043,26 @@ async def generate_questions_stream(
                             ],
                             "category": "priority"
                         }
-                    ]
-                    
-                    # 기본 질문들을 개별적으로 전송
-                    for idx, question in enumerate(default_questions_list):
-                        question_data = {
-                            "status": "question_ready",
-                            "question": question,
-                            "question_number": idx + 1,
-                            "default_template": True
+                        ]
+                        
+                        # 기본 질문들을 개별적으로 전송
+                        for idx, question in enumerate(default_questions_list):
+                            question_data = {
+                                "status": "question_ready",
+                                "question": question,
+                                "question_number": idx + 1,
+                                "default_template": True
+                            }
+                            yield f"data: {json.dumps(question_data, ensure_ascii=False)}\n\n"
+                        
+                        # 어떤 경우든 사용자는 완전한 데이터를 받았다고 알림
+                        complete_data = {
+                            "status": "completed",
+                            "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
+                            "total_questions": len(default_questions_list),
+                            "streaming_mode": "default_template"
                         }
-                        yield f"data: {json.dumps(question_data, ensure_ascii=False)}\n\n"
-                    
-                    # 어떤 경우든 사용자는 완전한 데이터를 받았다고 알림
-                    complete_data = {
-                        "status": "completed",
-                        "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
-                        "total_questions": len(default_questions_list),
-                        "streaming_mode": "default_template"
-                    }
-                    yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
                 
                 # [DONE] 신호 즉시 전송 (불필요한 대기 제거)
                 yield f"data: [DONE]\n\n"
