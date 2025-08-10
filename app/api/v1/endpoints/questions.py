@@ -770,8 +770,7 @@ async def generate_questions_stream(
                 parsed_questions = []
                 current_question_buffer = ""
                 question_count = 0
-                in_question_object = False
-                brace_depth = 0
+                sent_question_ids = set()  # 중복 전송 방지
                 
                 # Gemini 스트리밍 호출 (Pro Plan 최적화, 타임아웃 보호)
                 try:
@@ -794,45 +793,9 @@ async def generate_questions_stream(
                         accumulated_content += chunk
                         current_question_buffer += chunk
                         
-                        # 질문 객체 파싱 시도
-                        for char in chunk:
-                            if char == '{':
-                                if brace_depth == 0 and '"id"' in current_question_buffer:
-                                    in_question_object = True
-                                brace_depth += 1
-                            elif char == '}':
-                                brace_depth -= 1
-                                if brace_depth == 0 and in_question_object:
-                                    # 완전한 질문 객체를 찾음
-                                    try:
-                                        # 현재 버퍼에서 마지막 완성된 객체 추출
-                                        question_end = current_question_buffer.rfind('}') + 1
-                                        question_start = current_question_buffer.rfind('{', 0, question_end)
-                                        
-                                        if question_start != -1:
-                                            question_json = current_question_buffer[question_start:question_end]
-                                            question_obj = json.loads(question_json)
-                                            
-                                            # 유효한 질문 객체인지 확인
-                                            if all(field in question_obj for field in ['id', 'text', 'type']):
-                                                question_count += 1
-                                                parsed_questions.append(question_obj)
-                                                
-                                                # 개별 질문 즉시 전송
-                                                single_question_data = {
-                                                    "status": "question_ready",
-                                                    "question": question_obj,
-                                                    "question_number": question_count,
-                                                    "timestamp": asyncio.get_event_loop().time()
-                                                }
-                                                yield f"data: {json.dumps(single_question_data, ensure_ascii=False)}\n\n"
-                                                logger.info(f"📤 Question {question_count} sent immediately [{stream_id}]")
-                                                
-                                                # 버퍼 정리
-                                                current_question_buffer = current_question_buffer[question_end:]
-                                                in_question_object = False
-                                    except json.JSONDecodeError:
-                                        pass  # 파싱 실패시 계속 누적
+                        # 실시간 질문 파싱은 복잡하므로 일단 스킵
+                        # 전체 JSON 완성 후 batch_fallback에서 처리
+                        pass
                         
                         # 연결 상태 주기적 체크
                         await asyncio.sleep(0.001)  # 더 빠른 응답을 위해 줄임
@@ -853,46 +816,36 @@ async def generate_questions_stream(
                         yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                         return
                 
-                logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars, questions sent: {question_count}")
+                logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars")
                 
-                # 이미 파싱된 질문들이 있으면 성공으로 처리
-                if len(parsed_questions) > 0:
-                    # 완료 신호 (정상) - 질문별 스트리밍 성공
+                # 실시간 파싱을 스킵했으므로 항상 batch_fallback 모드로 처리
+                logger.info(f"🔍 Processing accumulated content [{stream_id}]")
+                
+                # 전체 JSON 완전성 검증 시도
+                is_complete, full_parsed_questions = await verify_and_fix_json_completeness(accumulated_content, stream_id)
+                
+                if is_complete and full_parsed_questions:
+                    logger.info(f"✅ Batch processing successful [{stream_id}]: {len(full_parsed_questions)} questions")
+                    
+                    # 전체 파싱 성공 - 질문들을 전송
+                    for idx, question in enumerate(full_parsed_questions):
+                        question_data = {
+                            "status": "question_ready",
+                            "question": question,
+                            "question_number": idx + 1,
+                            "batch_mode": True
+                        }
+                        yield f"data: {json.dumps(question_data, ensure_ascii=False)}\n\n"
+                    
                     complete_data = {
-                        "status": "completed", 
+                        "status": "completed",
                         "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
-                        "validated": True,
-                        "total_questions": len(parsed_questions),
-                        "streaming_mode": "per_question"
+                        "total_questions": len(full_parsed_questions),
+                        "streaming_mode": "batch_processing"
                     }
                     yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
                 else:
-                    # 질문이 하나도 파싱되지 않은 경우 - 전체 JSON 파싱 시도
-                    logger.warning(f"🚨 No questions parsed via streaming [{stream_id}], trying full JSON parse")
-                    
-                    # 전체 JSON 완전성 검증 시도
-                    is_complete, full_parsed_questions = await verify_and_fix_json_completeness(accumulated_content, stream_id)
-                    
-                    if is_complete and full_parsed_questions:
-                        # 전체 파싱 성공 - 한 번에 모든 질문 전송
-                        for idx, question in enumerate(full_parsed_questions):
-                            question_data = {
-                                "status": "question_ready",
-                                "question": question,
-                                "question_number": idx + 1,
-                                "batch_mode": True
-                            }
-                            yield f"data: {json.dumps(question_data, ensure_ascii=False)}\n\n"
-                        
-                        complete_data = {
-                            "status": "completed",
-                            "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
-                            "total_questions": len(full_parsed_questions),
-                            "streaming_mode": "batch_fallback"
-                        }
-                        yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
-                    else:
-                        # 파싱 불가능한 경우 - 기본 템플릿 사용 (API 호출 없이)
+                    # 파싱 불가능한 경우 - 기본 템플릿 사용 (API 호출 없이)
                         logger.info(f"🔄 Using default template due to corrupted stream [{stream_id}]")
                         
                         # 하드코딩된 기본 질문들을 개별적으로 전송
