@@ -444,9 +444,16 @@ async def _parse_questions_realtime(
     - 문자열 내 특수문자 처리
     """
     try:
-        # 최근 청크만 우선 처리 (성능 최적화)
-        search_start = max(0, len(buffer) - len(chunk) - 1000)
-        working_buffer = buffer[search_start:]
+        # 첫 번째 질문 처리를 위한 검색 범위 조정
+        if question_count == 0:
+            # 첫 번째 질문의 경우 전체 버퍼를 검색 (q1 누락 방지)
+            search_start = 0
+            working_buffer = buffer
+            logger.debug(f"🔍 First question search: full buffer ({len(buffer)} chars) [{stream_id}]")
+        else:
+            # 성능 최적화: 최근 청크만 우선 처리
+            search_start = max(0, len(buffer) - len(chunk) - 1000)
+            working_buffer = buffer[search_start:]
         
         i = 0
         while i < len(working_buffer):
@@ -494,6 +501,10 @@ async def _parse_questions_realtime(
                                         # 질문 객체 유효성 검증
                                         if _validate_question_object(question_obj):
                                             question_id = question_obj.get('id')
+                                            
+                                            # q1 특별 감지 로깅
+                                            if question_id == 'q1':
+                                                logger.info(f"🔍 Found q1 in parsing! [{stream_id}]")
                                             
                                             # 중복 체크
                                             if question_id and question_id not in sent_question_ids:
@@ -913,14 +924,25 @@ async def generate_questions_stream(
                     
                     # 타임아웃을 가진 스트리밍 처리
                     start_time = asyncio.get_event_loop().time()
+                    chunk_counter = 0
                     async for chunk in streaming_task:
                         # 90초 타임아웃 체크
                         if asyncio.get_event_loop().time() - start_time > 90:
                             logger.warning(f"🕒 Manual timeout triggered [{stream_id}]")
                             raise asyncio.TimeoutError("Manual timeout after 90 seconds")
                         
+                        chunk_counter += 1
+                        
+                        # 첫 번째 청크와 q1 포함 청크 특별 로깅
+                        if chunk_counter <= 3 or 'q1' in chunk:
+                            logger.info(f"🔥 Chunk #{chunk_counter} [{stream_id}]: {chunk[:100]}...")
+                        
                         accumulated_content += chunk
                         current_question_buffer += chunk
+                        
+                        # 첫 번째 질문 감지를 위한 추가 로깅
+                        if question_count == 0 and '"id": "q1"' in current_question_buffer:
+                            logger.info(f"🎯 First question (q1) detected in buffer [{stream_id}]")
                         
                         # 개선된 실시간 질문 파싱 (성능 최적화 + 안정성)
                         parsed_question = await _parse_questions_realtime(
@@ -966,6 +988,14 @@ async def generate_questions_stream(
                 
                 # 실시간 파싱으로 질문들이 전송된 경우
                 if len(parsed_questions) > 0:
+                    # q1 누락 체크 및 경고
+                    sent_ids = [q.get('id') for q in parsed_questions]
+                    if 'q1' not in sent_ids:
+                        logger.warning(f"⚠️ q1 missing in real-time parsing [{stream_id}]! Sent: {sent_ids}")
+                        # q1 복구 시도
+                        if '"id": "q1"' in accumulated_content:
+                            logger.info(f"🔧 Attempting q1 recovery from accumulated content [{stream_id}]")
+                    
                     logger.info(f"✅ Real-time parsing successful [{stream_id}]: {len(parsed_questions)} questions sent")
                     # 완료 신호 (정상) - 질문별 스트리밍 성공
                     complete_data = {
