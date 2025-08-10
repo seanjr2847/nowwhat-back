@@ -64,6 +64,175 @@ class ChecklistOrchestrator:
             logger.error(f"Checklist generation failed: {str(e)}")
             raise ChecklistGenerationError(f"체크리스트 생성에 실패했습니다: {str(e)}")
     
+    async def process_answers_to_checklist_stream(
+        self,
+        request: QuestionAnswersRequest,
+        user: User,
+        db: Session,
+        stream_id: str
+    ):
+        """스트리밍 방식으로 체크리스트 생성 및 실시간 전송"""
+        import json
+        
+        try:
+            logger.info(f"🌊 Starting streaming checklist generation [{stream_id}] for user {user.id}")
+            
+            # 1. 답변 저장
+            await self._save_user_answers(request, user, db)
+            
+            # 답변 저장 완료 상태
+            yield {
+                "status": "answers_saved",
+                "message": "답변이 성공적으로 저장되었습니다"
+            }
+            
+            # 2. AI 체크리스트 생성 시작
+            yield {
+                "status": "generating_items",
+                "message": "체크리스트 항목을 생성하고 있습니다"
+            }
+            
+            # 3. 체크리스트 아이템을 하나씩 생성하며 전송
+            final_checklist_items = []
+            item_counter = 0
+            
+            try:
+                # AI 체크리스트 생성
+                ai_checklist = await self._generate_ai_checklist(request)
+                
+                for idx, item_title in enumerate(ai_checklist):
+                    item_counter += 1
+                    temp_item_id = f"temp_{item_counter}"
+                    
+                    # 개별 아이템 준비 완료 전송
+                    item_data = {
+                        "status": "item_ready",
+                        "item": {
+                            "item_id": temp_item_id,
+                            "title": item_title,
+                            "description": "",
+                            "order": item_counter
+                        },
+                        "progress": {
+                            "current": item_counter,
+                            "estimated_total": len(ai_checklist)
+                        }
+                    }
+                    yield item_data
+                    
+                    # 아이템을 최종 리스트에 추가
+                    final_checklist_items.append({
+                        "text": item_title,
+                        "description": ""
+                    })
+                    
+                    # 약간의 지연 (자연스러운 스트리밍)
+                    await asyncio.sleep(0.1)
+                
+            except Exception as ai_error:
+                logger.error(f"AI checklist generation failed [{stream_id}]: {str(ai_error)}")
+                # 폴백 체크리스트 사용
+                fallback_items = self._get_default_checklist_template(request.selectedIntent)
+                
+                for idx, item_title in enumerate(fallback_items):
+                    item_counter += 1
+                    temp_item_id = f"fallback_{item_counter}"
+                    
+                    item_data = {
+                        "status": "item_ready",
+                        "item": {
+                            "item_id": temp_item_id,
+                            "title": item_title,
+                            "description": "",
+                            "order": item_counter
+                        },
+                        "progress": {
+                            "current": item_counter,
+                            "estimated_total": len(fallback_items)
+                        },
+                        "fallback": True
+                    }
+                    yield item_data
+                    
+                    final_checklist_items.append({
+                        "text": item_title,
+                        "description": ""
+                    })
+                    
+                    await asyncio.sleep(0.1)
+            
+            # 4. 검색 결과로 아이템 보강 (병렬 처리)
+            yield {
+                "status": "enhancing_items", 
+                "message": "검색 결과로 체크리스트를 보강하고 있습니다",
+                "total_items": len(final_checklist_items)
+            }
+            
+            try:
+                # 검색 수행
+                search_results = await self._perform_parallel_search(request, [item["text"] for item in final_checklist_items])
+                enhanced_items = await self._match_search_results_to_items(final_checklist_items, search_results)
+                
+                # 보강된 아이템들을 하나씩 전송
+                for idx, enhanced_item in enumerate(enhanced_items):
+                    item_id = f"enhanced_{idx + 1}"
+                    
+                    enhancement_data = {
+                        "status": "item_enhanced",
+                        "item_id": item_id,
+                        "enhanced_item": {
+                            "item_id": item_id,
+                            "title": enhanced_item.get("text", ""),
+                            "description": enhanced_item.get("description", ""),
+                            "order": idx + 1
+                        },
+                        "details": {
+                            "tips": enhanced_item.get("tips", []),
+                            "links": enhanced_item.get("links", []),
+                            "price": enhanced_item.get("price", "")
+                        }
+                    }
+                    yield enhancement_data
+                    
+                    await asyncio.sleep(0.05)
+                
+                final_items_for_db = enhanced_items
+                
+            except Exception as search_error:
+                logger.warning(f"Search enhancement failed [{stream_id}]: {str(search_error)}")
+                # 검색 실패시 기본 아이템 사용
+                final_items_for_db = final_checklist_items
+            
+            # 5. 최종 체크리스트 DB 저장
+            yield {
+                "status": "saving_checklist",
+                "message": "체크리스트를 저장하고 있습니다"
+            }
+            
+            checklist_id = await self._save_final_checklist(
+                request, final_items_for_db, user, db
+            )
+            
+            # 6. 최종 완성 상태 전송
+            completion_data = {
+                "status": "completed",
+                "checklist_id": checklist_id,
+                "redirect_url": f"/result/{checklist_id}",
+                "total_items": len(final_items_for_db),
+                "message": f"체크리스트가 성공적으로 생성되었습니다 [{stream_id}]"
+            }
+            yield completion_data
+            
+            logger.info(f"✅ Streaming checklist generation completed [{stream_id}]: {checklist_id} with {len(final_items_for_db)} items")
+            
+        except Exception as e:
+            logger.error(f"🚨 Streaming checklist generation failed [{stream_id}]: {str(e)}")
+            yield {
+                "status": "error",
+                "message": f"체크리스트 생성 중 오류가 발생했습니다: {str(e)}",
+                "stream_id": stream_id
+            }
+    
     async def _save_user_answers(
         self, 
         request: QuestionAnswersRequest, 

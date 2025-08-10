@@ -543,6 +543,142 @@ async def submit_answers(
             detail="서버 내부 오류가 발생했습니다. 관리자에게 문의해주세요."
         )
 
+@router.post("/answer/stream")
+async def submit_answers_stream(
+    request: Request,
+    question_request: QuestionAnswersRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """답변을 제출하여 체크리스트를 스트리밍으로 생성
+    
+    비즈니스 흐름:
+    1. 요청 데이터 검증 및 시작 상태 전송
+    2. 사용자 답변 데이터베이스 저장
+    3. 체크리스트 아이템을 하나씩 생성하며 실시간 전송
+    4. 각 아이템에 대한 검색 결과 보강 및 전송
+    5. 최종 체크리스트 DB 저장 및 완료 신호
+    """
+    import uuid
+    import asyncio
+    
+    # 스트림 ID 생성
+    stream_id = str(uuid.uuid4())[:8]
+    
+    try:
+        logger.info(f"🌊 Starting checklist streaming [{stream_id}] - User: {current_user.id}, Goal: '{question_request.goal}'")
+        
+        async def checklist_stream():
+            try:
+                # 1. 시작 상태 전송
+                start_data = {
+                    "status": "started",
+                    "message": "체크리스트 생성을 시작합니다",
+                    "stream_id": stream_id,
+                    "goal": question_request.goal,
+                    "intent": question_request.selectedIntent
+                }
+                yield f"data: {json.dumps(start_data, ensure_ascii=False)}\n\n"
+                
+                # 2. 답변 저장 상태
+                save_data = {
+                    "status": "saving_answers",
+                    "message": "답변을 저장하고 있습니다",
+                    "answers_count": len(question_request.answers)
+                }
+                yield f"data: {json.dumps(save_data, ensure_ascii=False)}\n\n"
+                
+                # 3. 실제 체크리스트 생성 (checklist_orchestrator 사용)
+                try:
+                    result = await checklist_orchestrator.process_answers_to_checklist_stream(
+                        question_request, current_user, db, stream_id
+                    )
+                    
+                    # 4. 스트리밍 중간에 각 아이템들이 전송됨 (orchestrator에서 처리)
+                    async for item_data in result:
+                        yield f"data: {json.dumps(item_data, ensure_ascii=False)}\n\n"
+                        
+                except Exception as orchestrator_error:
+                    logger.error(f"🚨 Checklist orchestrator failed [{stream_id}]: {str(orchestrator_error)}")
+                    
+                    # 에러 상태 전송
+                    error_data = {
+                        "status": "error",
+                        "message": "체크리스트 생성 중 오류가 발생했습니다",
+                        "error": str(orchestrator_error),
+                        "stream_id": stream_id
+                    }
+                    yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                    yield f"data: [DONE]\n\n"
+                    return
+                
+                # 5. 스트림 종료
+                yield f"data: [DONE]\n\n"
+                
+            except Exception as e:
+                logger.error(f"🚨 Checklist streaming error [{stream_id}]: {str(e)}")
+                error_data = {
+                    "status": "error",
+                    "message": "스트리밍 중 오류가 발생했습니다",
+                    "error": str(e),
+                    "stream_id": stream_id
+                }
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                yield f"data: [DONE]\n\n"
+        
+        # CORS 헤더 설정
+        cors_headers = get_cors_headers(request)
+        streaming_headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Access-Control-Allow-Origin": cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app"),
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Expose-Headers": "*"
+        }
+        streaming_headers.update(cors_headers)
+        
+        response = StreamingResponse(
+            checklist_stream(),
+            media_type="text/plain; charset=utf-8",
+            headers=streaming_headers
+        )
+        
+        # 추가 CORS 헤더 설정
+        response.headers["Access-Control-Allow-Origin"] = cors_headers.get("Access-Control-Allow-Origin", "https://nowwhat-front.vercel.app")
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"🚨 Top-level checklist streaming error [{stream_id}]: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="체크리스트 스트리밍 생성 중 오류가 발생했습니다."
+        )
+
+@router.options("/answer/stream")
+async def options_submit_answers_stream(request: Request):
+    """체크리스트 스트리밍 엔드포인트를 위한 프리플라이트 CORS 처리"""
+    cors_headers = get_cors_headers(request)
+    return Response(
+        status_code=200,
+        headers={
+            **cors_headers,
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
+            "Access-Control-Max-Age": "86400"
+        }
+    )
+
 @router.options("/generate/stream")
 async def options_generate_questions_stream(request: Request):
     """스트리밍 엔드포인트를 위한 프리플라이트 CORS 처리"""
