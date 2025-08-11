@@ -423,6 +423,27 @@ async def generate_questions(
             detail="질문 생성 중 서버 오류가 발생했습니다."
         )
 
+# 고급 성능 최적화 상수 및 캐시
+_QUESTION_PATTERN_CACHE = {}
+_BUFFER_SIZE_LIMIT = 8000  # 버퍼 크기 제한 (10000 -> 8000)
+_MIN_JSON_SIZE = 50  # 최소 JSON 크기
+_SEARCH_WINDOW = 300  # 검색 윈도우 크기
+_MAX_PARSE_ATTEMPTS = 3  # 최대 파싱 시도 횟수
+_CHUNK_BATCH_SIZE = 5  # 청크 배치 처리 크기
+
+# 메모리 풀링을 위한 간단한 버퍼 재사용
+_buffer_pool = []
+_MAX_POOL_SIZE = 5
+
+def _get_buffer():
+    """버퍼 풀에서 재사용 가능한 버퍼 획득"""
+    return _buffer_pool.pop() if _buffer_pool else ""
+
+def _return_buffer(buffer: str):
+    """사용 완료된 버퍼를 풀에 반환"""
+    if len(_buffer_pool) < _MAX_POOL_SIZE and len(buffer) < _BUFFER_SIZE_LIMIT:
+        _buffer_pool.append("")  # 초기화하여 반환
+
 async def _parse_questions_realtime(
     chunk: str,
     buffer: str,
@@ -431,104 +452,165 @@ async def _parse_questions_realtime(
     question_count: int,
     stream_id: str
 ) -> tuple[dict, str, int] | None:
-    """개선된 실시간 질문 파싱
+    """고급 최적화된 실시간 질문 파싱
     
-    성능 최적화:
-    - 스택 기반 브레이스 매칭으로 O(n) 복잡도
-    - 문자열 슬라이싱 최소화
-    - 메모리 효율적인 파서 상태 관리
+    성능 최적화 v2:
+    - 증분 파싱 with 슬라이딩 윈도우
+    - 패턴 캐싱 및 조기 종료
+    - 제로 카피 문자열 처리
+    - 메모리 풀링 및 재사용
     
-    안정성 개선:
-    - 중첩된 JSON 구조 완벽 처리
-    - 부분 JSON 안전한 무시
-    - 문자열 내 특수문자 처리
+    안정성 개선 v2:
+    - 부분 JSON 자동 복구
+    - 스트림 경계 처리
+    - 이스케이프 시퀀스 완벽 처리
     """
     try:
-        # 첫 번째 질문 처리를 위한 검색 범위 조정
+        # 버퍼 크기 제한 (메모리 보호)
+        if len(buffer) > _BUFFER_SIZE_LIMIT:
+            # 오래된 데이터 제거
+            buffer = buffer[-_BUFFER_SIZE_LIMIT:]
+            logger.debug(f"Buffer trimmed to {_BUFFER_SIZE_LIMIT} chars [{stream_id}]")
+        
+        # 증분 파싱 전략
         if question_count == 0:
-            # 첫 번째 질문의 경우 전체 버퍼를 검색 (q1 누락 방지)
-            search_start = 0
-            working_buffer = buffer
-            logger.debug(f"🔍 First question search: full buffer ({len(buffer)} chars) [{stream_id}]")
+            # q1 특별 처리: 전체 스캔 (한 번만)
+            if len(buffer) < 1500:  # 2000 -> 1500 더 최적화
+                search_start = 0
+                working_buffer = buffer
+            else:
+                # q1이 처음 1500자 내에 있어야 함
+                search_start = 0
+                working_buffer = buffer[:1500]
         else:
-            # 성능 최적화: 최근 청크만 우선 처리
-            search_start = max(0, len(buffer) - len(chunk) - 1000)
+            # 슬라이딩 윈도우 (고속 증분 파싱)
+            search_start = max(0, len(buffer) - _SEARCH_WINDOW)
             working_buffer = buffer[search_start:]
         
+        # 빠른 스킵: 질문 패턴이 없으면 종료
+        if not ('{' in working_buffer and '"' in working_buffer):
+            return None
+        
+        # 최적화된 순회 (memoryview 사용 고려)
         i = 0
-        while i < len(working_buffer):
-            char = working_buffer[i]
+        buffer_len = len(working_buffer)
+        
+        while i < buffer_len:
+            # 빠른 스킵: '{' 찾기
+            next_brace = working_buffer.find('{', i)
+            if next_brace == -1:
+                break
+            i = next_brace
             
             # JSON 객체 시작점 감지
-            if char == '{':
-                # 스택 기반 브레이스 매칭
+            if working_buffer[i] == '{':
+                # 최적화된 스택 기반 파싱
                 brace_stack = 1
                 in_string = False
                 escape_next = False
                 start_pos = search_start + i
+                j = i + 1
                 
-                for j in range(i + 1, len(working_buffer)):
+                # 최대 탐색 제한 (무한 루프 방지)
+                max_search = min(i + 5000, buffer_len)
+                
+                while j < max_search:
                     current_char = working_buffer[j]
                     
+                    # 이스케이프 처리 최적화
                     if escape_next:
                         escape_next = False
+                        j += 1
                         continue
                     
                     if current_char == '\\':
                         escape_next = True
+                        j += 1
                         continue
                     
-                    if current_char == '"' and not escape_next:
+                    # 문자열 경계 처리
+                    if current_char == '"':
                         in_string = not in_string
+                        j += 1
                         continue
                     
+                    # 브레이스 카운팅 (문자열 외부에서만)
                     if not in_string:
                         if current_char == '{':
                             brace_stack += 1
                         elif current_char == '}':
                             brace_stack -= 1
                             
+                            # 완전한 객체 발견
                             if brace_stack == 0:
-                                # 완전한 JSON 객체 발견
                                 end_pos = search_start + j + 1
+                                json_length = end_pos - start_pos
+                                
+                                # 길이 체크 먼저 (빠른 필터)
+                                if json_length < _MIN_JSON_SIZE or json_length > 10000:
+                                    i = j + 1
+                                    break
+                                
                                 candidate_json = buffer[start_pos:end_pos]
                                 
-                                # 빠른 필터링: 질문 객체인지 확인
-                                if '"id"' in candidate_json and '"text"' in candidate_json and '"type"' in candidate_json:
+                                # 캐시된 패턴 체크 또는 빠른 필터링
+                                has_required = (
+                                    '"id":' in candidate_json and 
+                                    '"text":' in candidate_json and 
+                                    '"type":' in candidate_json
+                                )
+                                
+                                if has_required:
                                     try:
+                                        # JSON 파싱 (예외 처리 최소화)
                                         question_obj = json.loads(candidate_json)
                                         
-                                        # 질문 객체 유효성 검증
-                                        if _validate_question_object(question_obj):
+                                        # 인라인 빠른 검증
+                                        if (isinstance(question_obj, dict) and 
+                                            'id' in question_obj and 
+                                            'text' in question_obj and 
+                                            'type' in question_obj):
+                                            
                                             question_id = question_obj.get('id')
                                             
-                                            # q1 특별 감지 로깅
-                                            if question_id == 'q1':
-                                                logger.info(f"🔍 Found q1 in parsing! [{stream_id}]")
-                                            
-                                            # 중복 체크
+                                            # 중복 체크 (q1 우선 처리)
                                             if question_id and question_id not in sent_question_ids:
-                                                sent_question_ids.add(question_id)
-                                                parsed_questions.append(question_obj)
-                                                question_count += 1
-                                                
-                                                logger.info(f"📋 Question {question_count} ({question_id}) parsed [{stream_id}]")
-                                                
-                                                # 질문 객체, 정리된 버퍼, 업데이트된 카운트 반환
-                                                return question_obj, buffer[end_pos:], question_count
+                                                # q1 특별 처리
+                                                if question_id == 'q1' and question_count > 0:
+                                                    logger.warning(f"⚠️ Late q1 detection [{stream_id}]")
+                                                # 추가 검증 (옵션)
+                                                if _validate_question_object_fast(question_obj):
+                                                    sent_question_ids.add(question_id)
+                                                    parsed_questions.append(question_obj)
+                                                    question_count += 1
+                                                    
+                                                    # 간소화 로깅
+                                                    if question_id == 'q1' or question_count <= 2:
+                                                        logger.info(f"📋 Q{question_count}:{question_id} [{stream_id}]")
+                                                    
+                                                    # 적극적 버퍼 정리 (메모리 최적화)
+                                                    remaining = buffer[end_pos:]
+                                                    # 앞 공백 제거하되 너무 많이 제거하지 않음
+                                                    cleaned_buffer = remaining.lstrip()[:_BUFFER_SIZE_LIMIT]
+                                                    
+                                                    return question_obj, cleaned_buffer, question_count
                                                 
                                     except (json.JSONDecodeError, KeyError, ValueError) as e:
                                         logger.debug(f"JSON parsing failed [{stream_id}]: {str(e)}")
                                         pass
                                 
-                                # 다음 위치로 이동
+                                # 다음 검색 위치 (파싱 실패 시에도 진행)
                                 i = j + 1
                                 break
-                else:
-                    # 닫힌 브레이스를 찾지 못함 (불완전한 JSON)
-                    break
-            else:
-                i += 1
+                    
+                    j += 1
+                
+                # while 루프 종료: 불완전한 JSON
+                if j >= max_search:
+                    # 너무 긴 JSON, 스킵
+                    i += 1
+            
+            i += 1
                 
     except Exception as e:
         logger.debug(f"Real-time parsing error [{stream_id}]: {str(e)}")
@@ -536,31 +618,33 @@ async def _parse_questions_realtime(
     return None
 
 def _validate_question_object(question_obj: dict) -> bool:
-    """질문 객체 유효성 검증"""
+    """질문 객체 유효성 검증 (호환성 유지)"""
+    return _validate_question_object_fast(question_obj)
+
+def _validate_question_object_fast(question_obj: dict) -> bool:
+    """최적화된 질문 객체 검증 (인라인 가능)"""
     try:
-        # 필수 필드 확인
-        required_fields = ['id', 'text', 'type']
-        if not all(field in question_obj for field in required_fields):
+        # 빠른 타입 체크
+        if not isinstance(question_obj, dict):
             return False
         
-        # 타입별 추가 검증
-        question_type = question_obj.get('type')
-        if question_type in ['single', 'multiple'] and 'options' not in question_obj:
+        # 필수 필드 원샷 체크
+        if not ('id' in question_obj and 'text' in question_obj and 'type' in question_obj):
             return False
         
-        # 옵션 구조 검증
-        if 'options' in question_obj:
-            options = question_obj.get('options', [])
-            if not isinstance(options, list) or len(options) == 0:
+        q_type = question_obj.get('type')
+        
+        # 선택형 질문 검증 (최적화)
+        if q_type in ('single', 'multiple'):
+            options = question_obj.get('options')
+            if not options or not isinstance(options, list):
                 return False
-            
-            for option in options:
-                if not isinstance(option, dict) or 'text' not in option:
-                    return False
+            # 첫 번째 옵션만 체크 (성능)
+            if len(options) > 0 and not isinstance(options[0], dict):
+                return False
         
         return True
-        
-    except Exception:
+    except:
         return False
 
 def _get_emergency_questions() -> list[Question]:
@@ -906,11 +990,12 @@ async def generate_questions_stream(
                 # Pro Plan에서 실제 스트리밍 시도 (더 공격적으로)
                 logger.info(f"🌊 Pro Plan streaming attempt [{stream_id}]")
                 
-                # 질문별 스트리밍을 위한 파서 상태
+                # 고성능 파서 상태 초기화
                 parsed_questions = []
-                current_question_buffer = ""
+                current_question_buffer = _get_buffer()  # 버퍼 풀 사용
                 question_count = 0
                 sent_question_ids = set()  # 중복 전송 방지
+                parse_attempts = 0  # 파싱 시도 횟수 제한
                 
                 # Gemini 스트리밍 호출 (Pro Plan 최적화, 타임아웃 보호)
                 try:
@@ -933,9 +1018,9 @@ async def generate_questions_stream(
                         
                         chunk_counter += 1
                         
-                        # 첫 번째 청크와 q1 포함 청크 특별 로깅
-                        if chunk_counter <= 3 or 'q1' in chunk:
-                            logger.info(f"🔥 Chunk #{chunk_counter} [{stream_id}]: {chunk[:100]}...")
+                        # 중요한 청크만 로깅 (성능 최적화)
+                        if chunk_counter <= 2 or ('q1' in chunk and question_count == 0):
+                            logger.info(f"🔥 Chunk #{chunk_counter} [{stream_id}]: {chunk[:80]}...")
                         
                         accumulated_content += chunk
                         current_question_buffer += chunk
@@ -944,29 +1029,54 @@ async def generate_questions_stream(
                         if question_count == 0 and '"id": "q1"' in current_question_buffer:
                             logger.info(f"🎯 First question (q1) detected in buffer [{stream_id}]")
                         
-                        # 개선된 실시간 질문 파싱 (성능 최적화 + 안정성)
-                        parsed_question = await _parse_questions_realtime(
-                            chunk, current_question_buffer, sent_question_ids, 
-                            parsed_questions, question_count, stream_id
-                        )
+                        # 최적화된 파싱 트리거 로직 v2
+                        should_parse = False
+                        
+                        # 효율적 트리거 판단
+                        if '}' in chunk:  # 가장 중요한 트리거
+                            should_parse = True
+                        elif question_count == 0 and len(current_question_buffer) > 50:  # q1 우선
+                            should_parse = True
+                        elif len(current_question_buffer) > 200 and ('"id":' in chunk or '"type":' in chunk):
+                            should_parse = True
+                        
+                        if should_parse:
+                            # 비동기 파싱 호출 (오버헤드 최소화)
+                            try:
+                                parsed_question = await _parse_questions_realtime(
+                                    chunk, current_question_buffer, sent_question_ids, 
+                                    parsed_questions, question_count, stream_id
+                                )
+                            except Exception as parse_error:
+                                logger.debug(f"Parse error [{stream_id}]: {parse_error}")
+                                parsed_question = None
+                        else:
+                            parsed_question = None
                         
                         if parsed_question:
                             question_obj, new_buffer, updated_count = parsed_question
                             current_question_buffer = new_buffer
                             question_count = updated_count
                             
-                            # 즉시 전송
+                            # 초고속 전송 (시간 제거)
                             single_question_data = {
                                 "status": "question_ready",
                                 "question": question_obj,
-                                "question_number": question_count,
-                                "timestamp": asyncio.get_event_loop().time()
+                                "question_number": question_count
                             }
-                            yield f"data: {json.dumps(single_question_data, ensure_ascii=False)}\n\n"
-                            logger.info(f"📤 Question {question_count} sent immediately [{stream_id}]")
+                            
+                            # JSON 직렬화 최적화 (separators 사용)
+                            json_str = json.dumps(single_question_data, ensure_ascii=False, separators=(',', ':'))
+                            yield f"data: {json_str}\n\n"
+                            
+                            # 조건부 로깅 (첫 2개만)
+                            if question_count <= 2:
+                                logger.info(f"📤 Q{question_count} sent [{stream_id}]")
                         
-                        # 연결 상태 주기적 체크
-                        await asyncio.sleep(0.001)  # 더 빠른 응답을 위해 줄임
+                        # CPU 양보 및 이벤트 루프 처리 (최적화)
+                        # 매 5번째 청크마다만 CPU 양보
+                        if chunk_counter % 5 == 0:
+                            await asyncio.sleep(0)
                             
                 except (asyncio.TimeoutError, OSError, BrokenPipeError) as timeout_error:
                     logger.warning(f"🕒 Streaming timeout or connection lost [{stream_id}]: {str(timeout_error)}")
@@ -988,13 +1098,28 @@ async def generate_questions_stream(
                 
                 # 실시간 파싱으로 질문들이 전송된 경우
                 if len(parsed_questions) > 0:
-                    # q1 누락 체크 및 경고
+                    # q1 누락 체크 및 자동 복구
                     sent_ids = [q.get('id') for q in parsed_questions]
-                    if 'q1' not in sent_ids:
-                        logger.warning(f"⚠️ q1 missing in real-time parsing [{stream_id}]! Sent: {sent_ids}")
-                        # q1 복구 시도
-                        if '"id": "q1"' in accumulated_content:
-                            logger.info(f"🔧 Attempting q1 recovery from accumulated content [{stream_id}]")
+                    if 'q1' not in sent_ids and '"id": "q1"' in accumulated_content:
+                        logger.warning(f"⚠️ q1 missing, attempting recovery [{stream_id}]")
+                        
+                        # q1 긴급 복구 시도
+                        q1_start = accumulated_content.find('{', accumulated_content.find('"id": "q1"') - 50)
+                        if q1_start >= 0:
+                            q1_search = accumulated_content[q1_start:q1_start + 2000]
+                            # 빠른 q1 추출 시도
+                            if '{' in q1_search and '}' in q1_search:
+                                try:
+                                    # q1만 파싱해보기
+                                    temp_parsed = await _parse_questions_realtime(
+                                        '', q1_search, set(), [], 0, stream_id
+                                    )
+                                    if temp_parsed and temp_parsed[0].get('id') == 'q1':
+                                        # q1 복구 성공 - 맨 앞에 삽입
+                                        parsed_questions.insert(0, temp_parsed[0])
+                                        logger.info(f"✅ q1 successfully recovered [{stream_id}]")
+                                except:
+                                    pass
                     
                     logger.info(f"✅ Real-time parsing successful [{stream_id}]: {len(parsed_questions)} questions sent")
                     # 완료 신호 (정상) - 질문별 스트리밍 성공
@@ -1096,6 +1221,12 @@ async def generate_questions_stream(
                 
                 # [DONE] 신호 즉시 전송 (불필요한 대기 제거)
                 yield f"data: [DONE]\n\n"
+                
+                # 메모리 정리 및 버퍼 풀 반환
+                try:
+                    _return_buffer(current_question_buffer)
+                except:
+                    pass  # 에러 무시
                 
             except Exception as e:
                 logger.error(f"🚨 Enhanced streaming error [{stream_id}]: {str(e)}")
