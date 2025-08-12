@@ -407,16 +407,14 @@ class GeminiApiClient:
                                 "description": "항목에 대한 상세 설명 (선택사항, 빈 문자열 가능)"
                             }
                         },
-                        "required": ["title"],
-                        "additionalProperties": False
+                        "required": ["title"]
                     },
                     "description": "체크리스트 항목들",
                     "minItems": 3,
                     "maxItems": 10
                 }
             },
-            "required": ["items"],
-            "additionalProperties": False
+            "required": ["items"]
         }
 
     def _create_search_schema(self) -> Dict[str, Any]:
