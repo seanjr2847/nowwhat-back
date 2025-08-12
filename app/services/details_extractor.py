@@ -309,7 +309,8 @@ class DetailsExtractor:
         if details.location:
             result['location'] = details.location
         
-        return result if result else None
+        # 빈 결과라도 딕셔너리를 반환 (None 대신)
+        return result
 
 # 서비스 인스턴스
 details_extractor = DetailsExtractor()

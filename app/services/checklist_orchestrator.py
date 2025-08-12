@@ -177,6 +177,27 @@ class ChecklistOrchestrator:
                 for idx, enhanced_item in enumerate(enhanced_items):
                     item_id = f"enhanced_{idx + 1}"
                     
+                    # details 정보 안전하게 추출 (디버깅 로그 포함)
+                    details_info = enhanced_item.get("details", {})
+                    logger.debug(f"Item {idx+1} details_info type: {type(details_info)}, content: {details_info}")
+                    
+                    if details_info:
+                        # details가 딕셔너리인 경우
+                        if isinstance(details_info, dict):
+                            tips = details_info.get("tips", [])
+                            links = details_info.get("links", [])
+                            contacts = details_info.get("contacts", [])
+                            price = details_info.get("price", "")
+                            location = details_info.get("location", "")
+                        else:
+                            # details가 다른 형식인 경우 빈 값
+                            tips = links = contacts = []
+                            price = location = ""
+                    else:
+                        # details가 없는 경우
+                        tips = links = contacts = []
+                        price = location = ""
+                    
                     enhancement_data = {
                         "status": "item_enhanced",
                         "item_id": item_id,
@@ -187,9 +208,11 @@ class ChecklistOrchestrator:
                             "order": idx + 1
                         },
                         "details": {
-                            "tips": enhanced_item.get("tips", []),
-                            "links": enhanced_item.get("links", []),
-                            "price": enhanced_item.get("price", "")
+                            "tips": tips,
+                            "links": links,
+                            "contacts": contacts,
+                            "price": price,
+                            "location": location
                         }
                     }
                     yield enhancement_data
@@ -635,9 +658,15 @@ class ChecklistOrchestrator:
                     [assigned_result], item_text
                 )
                 
+                # details 변환 및 디버깅
+                details_dict = details_extractor.to_dict(item_details)
+                logger.info(f"Details extracted for '{item_text[:30]}...': {details_dict is not None}")
+                if details_dict:
+                    logger.debug(f"Details content: {details_dict}")
+                
                 enhanced_items.append({
                     "text": item_text,
-                    "details": details_extractor.to_dict(item_details)
+                    "details": details_dict
                 })
             else:
                 # 검색 결과가 부족한 경우 빈 details

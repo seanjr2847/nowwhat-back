@@ -452,165 +452,120 @@ async def _parse_questions_realtime(
     question_count: int,
     stream_id: str
 ) -> tuple[dict, str, int] | None:
-    """고급 최적화된 실시간 질문 파싱
+    """개선된 실시간 질문 파싱 - 누락 방지 최적화
     
-    성능 최적화 v2:
-    - 증분 파싱 with 슬라이딩 윈도우
-    - 패턴 캐싱 및 조기 종료
-    - 제로 카피 문자열 처리
-    - 메모리 풀링 및 재사용
-    
-    안정성 개선 v2:
-    - 부분 JSON 자동 복구
-    - 스트림 경계 처리
-    - 이스케이프 시퀀스 완벽 처리
+    개선 사항:
+    - 전체 버퍼 스캔으로 누락 방지
+    - 순차적 질문 ID 검색 (q1, q2, q3, q4, q5)
+    - 중복 방지를 위한 sent_question_ids 활용
+    - 안정적인 JSON 파싱
     """
     try:
-        # 버퍼 크기 제한 (메모리 보호)
+        # 버퍼 크기 관리 (보수적 접근)
         if len(buffer) > _BUFFER_SIZE_LIMIT:
-            # 오래된 데이터 제거
-            buffer = buffer[-_BUFFER_SIZE_LIMIT:]
-            logger.debug(f"Buffer trimmed to {_BUFFER_SIZE_LIMIT} chars [{stream_id}]")
+            # 최근 절반만 유지하여 중간 질문 손실 방지
+            buffer = buffer[len(buffer)//2:]
+            logger.debug(f"Buffer trimmed conservatively [{stream_id}]")
         
-        # 증분 파싱 전략
-        if question_count == 0:
-            # q1 특별 처리: 전체 스캔 (한 번만)
-            if len(buffer) < 1500:  # 2000 -> 1500 더 최적화
-                search_start = 0
-                working_buffer = buffer
-            else:
-                # q1이 처음 1500자 내에 있어야 함
-                search_start = 0
-                working_buffer = buffer[:1500]
-        else:
-            # 슬라이딩 윈도우 (고속 증분 파싱)
-            search_start = max(0, len(buffer) - _SEARCH_WINDOW)
-            working_buffer = buffer[search_start:]
+        # 전체 버퍼 검색 (누락 방지)
+        working_buffer = buffer
+        search_start = 0
         
-        # 빠른 스킵: 질문 패턴이 없으면 종료
-        if not ('{' in working_buffer and '"' in working_buffer):
+        # 순차적 질문 ID 검색 (q1 -> q2 -> q3 -> q4 -> q5)
+        question_ids_to_find = []
+        for i in range(1, 8):  # q1부터 q7까지 확인
+            qid = f"q{i}"
+            if qid not in sent_question_ids and qid in working_buffer:
+                question_ids_to_find.append(qid)
+        
+        # 찾을 질문이 없으면 종료
+        if not question_ids_to_find:
             return None
         
-        # 최적화된 순회 (memoryview 사용 고려)
-        i = 0
-        buffer_len = len(working_buffer)
+        # 첫 번째 미발견 질문 우선 처리
+        target_question_id = question_ids_to_find[0]
+        logger.debug(f"Looking for {target_question_id} [{stream_id}]")
         
-        while i < buffer_len:
-            # 빠른 스킵: '{' 찾기
-            next_brace = working_buffer.find('{', i)
-            if next_brace == -1:
-                break
-            i = next_brace
+        # 해당 질문 ID 위치 찾기
+        id_pattern = f'"id": "{target_question_id}"'
+        id_pos = working_buffer.find(id_pattern)
+        
+        if id_pos == -1:
+            return None
+        
+        # 질문 객체 시작점 찾기 (역방향 검색)
+        search_start_pos = max(0, id_pos - 200)  # 200자 이전부터 검색
+        obj_start = working_buffer.rfind('{', search_start_pos, id_pos)
+        
+        if obj_start == -1:
+            return None
+        
+        # JSON 객체 끝점 찾기 (스택 기반 파싱)
+        brace_stack = 0
+        in_string = False
+        escape_next = False
+        obj_end = -1
+        
+        for j in range(obj_start, len(working_buffer)):
+            current_char = working_buffer[j]
             
-            # JSON 객체 시작점 감지
-            if working_buffer[i] == '{':
-                # 최적화된 스택 기반 파싱
-                brace_stack = 1
-                in_string = False
+            # 이스케이프 처리
+            if escape_next:
                 escape_next = False
-                start_pos = search_start + i
-                j = i + 1
-                
-                # 최대 탐색 제한 (무한 루프 방지)
-                max_search = min(i + 5000, buffer_len)
-                
-                while j < max_search:
-                    current_char = working_buffer[j]
-                    
-                    # 이스케이프 처리 최적화
-                    if escape_next:
-                        escape_next = False
-                        j += 1
-                        continue
-                    
-                    if current_char == '\\':
-                        escape_next = True
-                        j += 1
-                        continue
-                    
-                    # 문자열 경계 처리
-                    if current_char == '"':
-                        in_string = not in_string
-                        j += 1
-                        continue
-                    
-                    # 브레이스 카운팅 (문자열 외부에서만)
-                    if not in_string:
-                        if current_char == '{':
-                            brace_stack += 1
-                        elif current_char == '}':
-                            brace_stack -= 1
-                            
-                            # 완전한 객체 발견
-                            if brace_stack == 0:
-                                end_pos = search_start + j + 1
-                                json_length = end_pos - start_pos
-                                
-                                # 길이 체크 먼저 (빠른 필터)
-                                if json_length < _MIN_JSON_SIZE or json_length > 10000:
-                                    i = j + 1
-                                    break
-                                
-                                candidate_json = buffer[start_pos:end_pos]
-                                
-                                # 캐시된 패턴 체크 또는 빠른 필터링
-                                has_required = (
-                                    '"id":' in candidate_json and 
-                                    '"text":' in candidate_json and 
-                                    '"type":' in candidate_json
-                                )
-                                
-                                if has_required:
-                                    try:
-                                        # JSON 파싱 (예외 처리 최소화)
-                                        question_obj = json.loads(candidate_json)
-                                        
-                                        # 인라인 빠른 검증
-                                        if (isinstance(question_obj, dict) and 
-                                            'id' in question_obj and 
-                                            'text' in question_obj and 
-                                            'type' in question_obj):
-                                            
-                                            question_id = question_obj.get('id')
-                                            
-                                            # 중복 체크 (q1 우선 처리)
-                                            if question_id and question_id not in sent_question_ids:
-                                                # q1 특별 처리
-                                                if question_id == 'q1' and question_count > 0:
-                                                    logger.warning(f"⚠️ Late q1 detection [{stream_id}]")
-                                                # 추가 검증 (옵션)
-                                                if _validate_question_object_fast(question_obj):
-                                                    sent_question_ids.add(question_id)
-                                                    parsed_questions.append(question_obj)
-                                                    question_count += 1
-                                                    
-                                                    # 간소화 로깅
-                                                    if question_id == 'q1' or question_count <= 2:
-                                                        logger.info(f"📋 Q{question_count}:{question_id} [{stream_id}]")
-                                                    
-                                                    # 적극적 버퍼 정리 (메모리 최적화)
-                                                    remaining = buffer[end_pos:]
-                                                    # 앞 공백 제거하되 너무 많이 제거하지 않음
-                                                    cleaned_buffer = remaining.lstrip()[:_BUFFER_SIZE_LIMIT]
-                                                    
-                                                    return question_obj, cleaned_buffer, question_count
-                                                
-                                    except (json.JSONDecodeError, KeyError, ValueError) as e:
-                                        logger.debug(f"JSON parsing failed [{stream_id}]: {str(e)}")
-                                        pass
-                                
-                                # 다음 검색 위치 (파싱 실패 시에도 진행)
-                                i = j + 1
-                                break
-                    
-                    j += 1
-                
-                # while 루프 종료: 불완전한 JSON
-                if j >= max_search:
-                    # 너무 긴 JSON, 스킵
-                    i += 1
+                continue
             
-            i += 1
+            if current_char == '\\':
+                escape_next = True
+                continue
+            
+            # 문자열 경계 처리
+            if current_char == '"':
+                in_string = not in_string
+                continue
+            
+            # 브레이스 카운팅 (문자열 외부에서만)
+            if not in_string:
+                if current_char == '{':
+                    brace_stack += 1
+                elif current_char == '}':
+                    brace_stack -= 1
+                    
+                    # 완전한 객체 발견
+                    if brace_stack == 0:
+                        obj_end = j + 1
+                        break
+        
+        if obj_end == -1:
+            return None
+        
+        # JSON 후보 추출 및 파싱
+        candidate_json = working_buffer[obj_start:obj_end]
+        
+        try:
+            question_obj = json.loads(candidate_json)
+            
+            # 질문 객체 검증
+            if (isinstance(question_obj, dict) and 
+                'id' in question_obj and 
+                'text' in question_obj and 
+                'type' in question_obj and
+                question_obj.get('id') == target_question_id):
+                
+                # 중복 방지 및 상태 업데이트
+                sent_question_ids.add(target_question_id)
+                parsed_questions.append(question_obj)
+                question_count += 1
+                
+                logger.info(f"📋 Found {target_question_id} [{stream_id}]")
+                
+                # 버퍼 정리 (처리된 부분 제거)
+                cleaned_buffer = working_buffer[obj_end:].lstrip()
+                
+                return question_obj, cleaned_buffer, question_count
+                
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.debug(f"JSON parsing failed for {target_question_id} [{stream_id}]: {str(e)}")
+            return None
                 
     except Exception as e:
         logger.debug(f"Real-time parsing error [{stream_id}]: {str(e)}")
