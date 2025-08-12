@@ -814,12 +814,13 @@ async def submit_answers_stream(
                 
                 # 3. 실제 체크리스트 생성 (checklist_orchestrator 사용)
                 try:
-                    result = await checklist_orchestrator.process_answers_to_checklist_stream(
+                    # async generator이므로 await 없이 직접 iterate
+                    result_stream = checklist_orchestrator.process_answers_to_checklist_stream(
                         question_request, current_user, db, stream_id
                     )
                     
                     # 4. 스트리밍 중간에 각 아이템들이 전송됨 (orchestrator에서 처리)
-                    async for item_data in result:
+                    async for item_data in result_stream:
                         yield f"data: {json.dumps(item_data, ensure_ascii=False)}\n\n"
                         
                 except Exception as orchestrator_error:
