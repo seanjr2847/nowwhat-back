@@ -16,7 +16,7 @@ import google.generativeai as genai
 
 from app.core.config import settings
 from app.prompts.enhanced_prompts import get_enhanced_knowledge_prompt
-from .config import GeminiConfig, GeminiAPIError, SearchResult
+from .config import GeminiConfig, GeminiAPIError, GeminiResponseError, SearchResult
 from .utils import create_error_result
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ class GeminiApiClient:
                     model_with_search.generate_content,
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=GeminiConfig.MAX_OUTPUT_TOKENS * 0.8,  # 검색 기능 사용 시 토큰 여유
+                        max_output_tokens=int(GeminiConfig.MAX_OUTPUT_TOKENS * 0.8),  # 검색 기능 사용 시 토큰 여유
                         temperature=GeminiConfig.TEMPERATURE,
                         top_p=GeminiConfig.TOP_P,
                         top_k=GeminiConfig.TOP_K,

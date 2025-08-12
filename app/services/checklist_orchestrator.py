@@ -619,25 +619,31 @@ class ChecklistOrchestrator:
         
         # 1:1 매칭: 각 체크리스트 아이템에 순서대로 검색 결과 할당
         for i, item in enumerate(checklist_items):
+            # 아이템을 문자열로 안전하게 변환 (딕셔너리인 경우 처리)
+            if isinstance(item, dict):
+                item_text = item.get('title', item.get('text', str(item)))
+            else:
+                item_text = str(item)
+            
             # 순서대로 매칭 (i번째 아이템 → i번째 검색 결과)
             if i < len(successful_results):
                 assigned_result = successful_results[i]
-                logger.info(f"   {i+1}. '{item[:40]}...' ← '{assigned_result.query[:40]}...'")
+                logger.info(f"   {i+1}. '{item_text[:40]}...' ← '{assigned_result.query[:40]}...'")
                 
                 # 할당된 검색 결과에서 details 정보 추출
                 item_details = details_extractor.extract_details_from_search_results(
-                    [assigned_result], item
+                    [assigned_result], item_text
                 )
                 
                 enhanced_items.append({
-                    "text": item,
+                    "text": item_text,
                     "details": details_extractor.to_dict(item_details)
                 })
             else:
                 # 검색 결과가 부족한 경우 빈 details
-                logger.warning(f"   {i+1}. '{item[:40]}...' ← (검색 결과 없음)")
+                logger.warning(f"   {i+1}. '{item_text[:40]}...' ← (검색 결과 없음)")
                 enhanced_items.append({
-                    "text": item,
+                    "text": item_text,
                     "details": None
                 })
         
