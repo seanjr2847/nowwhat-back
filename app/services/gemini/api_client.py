@@ -105,10 +105,10 @@ class GeminiApiClient:
         try:
             logger.debug(f"Calling Gemini API with search enabled (prompt length: {len(prompt)} chars)")
             
-            # Google Search Retrieval을 사용하는 모델로 생성
+            # Google Search를 사용하는 모델로 생성 (Gemini 2.5+에서는 google_search 사용)
             model_with_search = genai.GenerativeModel(
                 settings.GEMINI_MODEL,
-                tools=[{"google_search_retrieval": {}}]
+                tools=[{"google_search": {}}]
             )
             
             try:
