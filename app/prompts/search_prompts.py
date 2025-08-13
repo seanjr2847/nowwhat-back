@@ -22,45 +22,17 @@ class SearchResponse(BaseModel):
     location: Optional[str] = None
 
 def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None) -> str:
-    """체크리스트 아이템 기반 웹 검색용 프롬프트 생성"""
+    """체크리스트 아이템 기반 웹 검색용 프롬프트 생성 (responseSchema 전용)"""
     current_year = datetime.now().year
-    return f"""'{checklist_item}'에 대한 실용적인 정보를 웹에서 검색해서 제공해주세요.
+    return f"""Search for practical information about "{checklist_item}" and provide helpful details.
 
-## 요청사항
-이 체크리스트 항목을 실행하는 데 도움이 되는 다음 정보들을 찾아주세요:
+Please find:
+- Practical tips for implementing "{checklist_item}"
+- Useful websites, tools, or platforms related to this task
+- Contact information for relevant services or organizations (if applicable)
+- Cost estimates or pricing information (if applicable)
+- Location or place information for offline activities (if applicable)
 
-### 1. 실용적인 팁 (최소 3개 이상)
-- "{checklist_item}"를 효과적으로 실행하는 구체적인 방법
-- 실제로 도움이 되는 실행 가능한 조언
-- 주의사항이나 꿀팁이 있다면 포함
-- 각 팁은 명확하고 구체적으로 작성
+Search context: {user_country or '한국'} market, {current_year} information, {user_language or '한국어'} language priority.
 
-### 2. 유용한 링크 (최소 3개 이상)
-- "{checklist_item}"와 직접 관련된 웹사이트
-- 공식 사이트, 가이드, 도구, 플랫폼 등
-- 실제 접속 가능한 URL만 제공
-- 각 링크의 용도와 특징을 제목에 명시
-
-### 3. 연락처 정보 (있다면)
-- 관련 서비스나 기관의 실제 연락처
-- 상담이나 문의가 가능한 곳
-- 전화번호, 이메일 등 정확한 정보만
-
-### 4. 예상 비용 (해당되는 경우)
-- "{checklist_item}" 실행에 필요한 대략적인 비용
-- 무료/유료 옵션이 있다면 구분해서 안내
-
-### 5. 장소/위치 정보 (해당되는 경우)
-- 오프라인에서 방문해야 할 장소가 있다면
-- 지역별 차이가 있다면 주요 지역 정보
-
-## 검색 및 응답 지침
-- {user_country or '한국'} 시장 기준의 최신 정보 ({current_year}년)
-- {user_language or '한국어'} 언어로 된 정보 우선 검색
-- 실제 존재하고 접속 가능한 링크만 제공
-- 구체적이고 실행 가능한 정보 우선
-- 광고성 내용보다는 실용적 가치 우선
-- 정보가 없는 항목은 빈 배열([])로 제공
-- 국가별/언어별 특성을 고려한 문화적으로 적절한 정보 제공
-
-검색 대상: "{checklist_item}"에 대한 실행 방법, 도구, 서비스, 가이드"""
+Focus on actionable, specific information that helps users complete this checklist item effectively."""
