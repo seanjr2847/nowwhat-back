@@ -382,13 +382,13 @@ class GeminiApiClient:
                         logger.debug(f"Found {len(candidate.grounding_metadata.grounding_chunks)} grounding chunks")
     
     def _create_checklist_schema(self) -> Dict[str, Any]:
-        """체크리스트 생성용 JSON 스키마
+        """체크리스트 생성용 JSON 스키마 (Gemini Structured Output 호환)
         
         비즈니스 로직:
         - 체크리스트 항목들을 구조화된 JSON으로 응답받기 위한 스키마
         - 각 항목은 title(필수)과 description(선택) 포함
         - 마크다운 블록 없이 깨끗한 JSON만 응답
-        - ```json 같은 불필요한 텍스트 완전 제거
+        - Gemini API Structured Output 완전 호환 형태
         """
         return {
             "type": "object",
@@ -398,73 +398,56 @@ class GeminiApiClient:
                     "items": {
                         "type": "object",
                         "properties": {
-                            "title": {
-                                "type": "string",
-                                "description": "체크리스트 항목 제목 (핵심 작업 내용)"
-                            },
-                            "description": {
-                                "type": "string",
-                                "description": "항목에 대한 상세 설명 (선택사항, 빈 문자열 가능)"
-                            }
+                            "title": {"type": "string"},
+                            "description": {"type": "string"}
                         },
                         "required": ["title"]
-                    },
-                    "description": "체크리스트 항목들"
+                    }
                 }
             },
             "required": ["items"]
         }
 
     def _create_search_schema(self) -> Dict[str, Any]:
-        """검색 응답용 JSON 스키마 생성
+        """검색 응답용 JSON 스키마 생성 (Gemini Structured Output 호환)
         
         비즈니스 로직:
         - Structured Output을 위한 Gemini API 호환 JSON 스키마
-        - $defs와 $ref를 사용하지 않은 인라인 스키마 구조
-        - tips, contacts, links, price, location 등 검색 결과에 필요한 모든 필드 정의
-        - 일관되고 예측 가능한 응답 형식 보장
+        - 간단하고 명확한 구조로 안정성 보장
+        - tips, contacts, links, price, location 등 검색 결과 필드 정의
         """
         return {
             "type": "object",
             "properties": {
                 "tips": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "실용적인 팁과 조언"
+                    "items": {"type": "string"}
                 },
                 "contacts": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "연락처 이름"},
-                            "phone": {"type": "string", "description": "전화번호"},
-                            "email": {"type": "string", "description": "이메일 주소"}
+                            "name": {"type": "string"},
+                            "phone": {"type": "string"},
+                            "email": {"type": "string"}
                         },
                         "required": ["name"]
-                    },
-                    "description": "관련 연락처 정보"
+                    }
                 },
                 "links": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "title": {"type": "string", "description": "링크 제목"},
-                            "url": {"type": "string", "description": "웹사이트 URL"}
+                            "title": {"type": "string"},
+                            "url": {"type": "string"}
                         },
                         "required": ["title", "url"]
-                    },
-                    "description": "유용한 웹사이트 링크"
+                    }
                 },
-                "price": {
-                    "type": "string",
-                    "description": "예상 비용 또는 가격 정보"
-                },
-                "location": {
-                    "type": "string", 
-                    "description": "위치 또는 장소 정보"
-                }
+                "price": {"type": "string"},
+                "location": {"type": "string"}
             },
             "required": ["tips", "contacts", "links"]
         }
