@@ -384,8 +384,12 @@ class ChecklistOrchestrator:
             
             logger.info(f"✅ 검색 쿼리 생성 완료: {len(search_queries)}개")
             logger.info("🚀 Gemini 병렬 검색 실행 중...")
-            # 병렬 검색 실행
-            search_results = await gemini_service.parallel_search(search_queries)
+            # 병렬 검색 실행 (다국어 지원)
+            search_results = await gemini_service.parallel_search(
+                search_queries, 
+                user_language=request.userLanguage, 
+                user_country=request.userCountry
+            )
             # 결과 분석
             success_count = sum(1 for r in search_results if r.success)
             failed_count = len(search_results) - success_count     

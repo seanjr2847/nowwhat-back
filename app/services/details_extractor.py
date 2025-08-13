@@ -111,9 +111,13 @@ class DetailsExtractor:
         location = None
         
         for data in structured_data:
-            # Tips 병합
+            # Tips 병합 with smart splitting
             if data.get("tips") and isinstance(data["tips"], list):
-                merged_tips.extend(data["tips"])
+                for tip in data["tips"]:
+                    if isinstance(tip, str):
+                        # 긴 tip을 여러 개로 분리 (Gemini가 하나로 뭉쳐서 보낸 경우 처리)
+                        processed_tips = self._split_long_tip(tip)
+                        merged_tips.extend(processed_tips)
             
             # Contacts 병합
             if data.get("contacts") and isinstance(data["contacts"], list):
@@ -131,10 +135,15 @@ class DetailsExtractor:
             if not location and data.get("location") and data["location"] != "null":
                 location = data["location"]
         
-        # 중복 제거
-        unique_tips = list(dict.fromkeys(merged_tips))[:3] if merged_tips else None
+        # 중복 제거 및 품질 필터링
+        unique_tips = self._filter_and_dedupe_tips(merged_tips) if merged_tips else None
         unique_contacts = merged_contacts[:2] if merged_contacts else None
         unique_links = merged_links[:3] if merged_links else None
+        
+        logger.info(f"Merged tips: {len(unique_tips) if unique_tips else 0} final tips")
+        if unique_tips:
+            for i, tip in enumerate(unique_tips):
+                logger.debug(f"  Tip {i+1}: {tip[:60]}...")
         
         return ItemDetails(
             tips=unique_tips,
@@ -311,6 +320,73 @@ class DetailsExtractor:
         
         # 빈 결과라도 딕셔너리를 반환 (None 대신)
         return result
+    
+    def _split_long_tip(self, tip: str) -> List[str]:
+        """긴 tip을 여러 개의 짧은 tip으로 분할"""
+        # 너무 짧으면 그대로 반환
+        if len(tip) <= 100:
+            return [tip.strip()]
+        
+        tips = []
+        
+        # 1. 번호나 불릿 포인트로 분할 시도
+        if re.search(r'\d+\.\s|[-•*]\s', tip):
+            parts = re.split(r'(?=\d+\.\s|[-•*]\s)', tip)
+            for part in parts:
+                clean_part = re.sub(r'^\d+\.\s*|^[-•*]\s*', '', part.strip())
+                if len(clean_part) > 10:
+                    tips.append(clean_part)
+        
+        # 2. 문장 단위로 분할 시도
+        elif len(tip) > 200:
+            sentences = re.split(r'[.!?]\s+', tip)
+            current_tip = ""
+            
+            for sentence in sentences:
+                if len(current_tip + sentence) < 100:
+                    current_tip += sentence + ". "
+                else:
+                    if current_tip.strip():
+                        tips.append(current_tip.strip())
+                    current_tip = sentence + ". "
+            
+            if current_tip.strip():
+                tips.append(current_tip.strip())
+        
+        # 3. 분할 실패 시 원본 반환
+        if not tips:
+            tips = [tip.strip()]
+        
+        return tips[:3]  # 최대 3개로 제한
+    
+    def _filter_and_dedupe_tips(self, tips: List[str]) -> List[str]:
+        """팁 필터링 및 중복 제거"""
+        if not tips:
+            return []
+        
+        filtered_tips = []
+        seen = set()
+        
+        for tip in tips:
+            tip = tip.strip()
+            
+            # 너무 짧거나 긴 팁 제거
+            if len(tip) < 10 or len(tip) > 300:
+                continue
+            
+            # 중복 확인 (소문자 변환하여 비교)
+            tip_lower = tip.lower()
+            if tip_lower in seen:
+                continue
+            
+            seen.add(tip_lower)
+            filtered_tips.append(tip)
+            
+            # 최대 5개로 제한
+            if len(filtered_tips) >= 5:
+                break
+        
+        return filtered_tips
 
 # 서비스 인스턴스
 details_extractor = DetailsExtractor()

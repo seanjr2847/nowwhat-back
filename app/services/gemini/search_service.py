@@ -14,7 +14,7 @@ import logging
 from typing import List, Dict, Any
 
 from app.core.config import settings
-from app.prompts.search_prompts import get_search_prompt
+from app.prompts.prompt_selector import get_search_prompt
 from .api_client import GeminiApiClient
 from .config import GeminiConfig, SearchResult
 from .utils import create_error_result
@@ -40,9 +40,11 @@ class SearchService:
             api_client: Gemini API 클라이언트 (DIP - 의존성 주입)
         """
         self.api_client = api_client
+        self.user_language = None
+        self.user_country = None
         logger.info("SearchService initialized")
     
-    async def parallel_search(self, queries: List[str]) -> List[SearchResult]:
+    async def parallel_search(self, queries: List[str], user_language: str = None, user_country: str = None) -> List[SearchResult]:
         """다중 검색 쿼리 병렬 실행
         
         비즈니스 로직:
@@ -58,8 +60,13 @@ class SearchService:
         Returns:
             List[SearchResult]: 검색 결과 리스트 (성공/실패 모두 포함)
         """
+        # 언어 정보 설정
+        self.user_language = user_language
+        self.user_country = user_country
+        
         logger.info("🚀 GEMINI 병렬 검색 시작")
         logger.info(f"   📝 요청된 쿼리 수: {len(queries)}개")
+        logger.info(f"   🌍 언어: {user_language or 'Default'}, 국가: {user_country or 'Default'}")
         
         if not queries:
             logger.warning("⚠️  검색 쿼리가 비어있습니다")
@@ -200,9 +207,9 @@ class SearchService:
         logger.debug(f"🔍 단일 검색 시작: '{query[:50]}...'")
         
         try:
-            # 체크리스트 아이템에 대한 구체적인 프롬프트 생성
-            prompt = get_search_prompt(query)
-            logger.debug(f"📝 생성된 프롬프트 길이: {len(prompt)}자")
+            # 체크리스트 아이템에 대한 구체적인 프롬프트 생성 (다국어 지원)
+            prompt = get_search_prompt(query, self.user_country, self.user_language)
+            logger.debug(f"📝 생성된 프롬프트 길이: {len(prompt)}자 (언어: {self.user_language or 'Default'})")
 
             # Gemini API 호출 (웹 검색 활성화)
             response = await self.api_client.call_api_with_search(prompt)

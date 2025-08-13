@@ -102,3 +102,13 @@ def get_checklist_response_class(user_language: Optional[str] = None):
     """언어별 체크리스트 응답 클래스 반환"""
     module = load_prompt_module("checklist_prompts", user_language)
     return module.ChecklistResponse
+
+def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None) -> str:
+    """언어별 검색 프롬프트 반환"""
+    module = load_prompt_module("search_prompts", user_language)
+    return module.get_search_prompt(checklist_item, user_country, user_language)
+
+def get_search_response_class(user_language: Optional[str] = None):
+    """언어별 검색 응답 클래스 반환"""
+    module = load_prompt_module("search_prompts", user_language)
+    return module.SearchResponse

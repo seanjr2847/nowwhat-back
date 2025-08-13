@@ -133,14 +133,17 @@ class GeminiService:
     # 기존 인터페이스 유지 (Search Functionality)
     # ===========================================
     
-    async def parallel_search(self, queries: List[str]) -> List[SearchResult]:
+    async def parallel_search(self, queries: List[str], user_language: str = None, user_country: str = None) -> List[SearchResult]:
         """다중 검색 쿼리 병렬 실행
         
         기존 인터페이스 그대로 유지하면서 SearchService에 위임
+        추가로 다국어 지원을 위한 언어 정보 선택적 지원
         """
         logger.debug(f"Facade: Delegating parallel search for {len(queries)} queries")
+        if user_language or user_country:
+            logger.debug(f"Language context: {user_language} / {user_country}")
         
-        return await self.search_service.parallel_search(queries)
+        return await self.search_service.parallel_search(queries, user_language, user_country)
     
     def generate_search_queries_from_checklist(
         self,
