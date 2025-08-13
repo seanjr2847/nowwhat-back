@@ -324,4 +324,133 @@ async def update_checklist_item(
         raise HTTPException(
             status_code=500,
             detail="체크리스트 아이템 업데이트 중 오류가 발생했습니다."
+        )
+
+@router.put("/{checklist_id}", response_model=APIResponse)
+async def update_checklist(
+    checklist_id: str,
+    checklist_update: ChecklistUpdate,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """체크리스트 전체 정보 수정 (제목, 카테고리, 설명)"""
+    try:
+        # 체크리스트 확인 및 권한 검증
+        cl = checklist.get(db=db, id=checklist_id)
+        if not cl:
+            raise HTTPException(
+                status_code=404,
+                detail="체크리스트를 찾을 수 없습니다."
+            )
+        
+        if cl.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="이 체크리스트에 접근할 권한이 없습니다."
+            )
+        
+        # 업데이트 데이터 검증
+        update_data = checklist_update.dict(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(
+                status_code=400,
+                detail="수정할 데이터가 없습니다."
+            )
+        
+        # 제목 중복 확인 (제목이 변경되는 경우에만)
+        if checklist_update.title and checklist_update.title != cl.title:
+            existing = db.query(checklist.model).filter(
+                checklist.model.user_id == current_user.id,
+                checklist.model.title == checklist_update.title,
+                checklist.model.id != checklist_id
+            ).first()
+            
+            if existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail="같은 제목의 체크리스트가 이미 존재합니다."
+                )
+        
+        # 체크리스트 업데이트
+        for field, value in update_data.items():
+            setattr(cl, field, value)
+        
+        # 업데이트 시간 설정
+        from datetime import datetime
+        cl.updated_at = datetime.utcnow()
+        
+        db.add(cl)
+        db.commit()
+        
+        logger.info(f"Checklist {checklist_id} updated by user {current_user.id}")
+        
+        return APIResponse(
+            success=True,
+            message="체크리스트가 성공적으로 수정되었습니다."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update checklist error: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="체크리스트 수정 중 오류가 발생했습니다."
+        )
+
+@router.delete("/{checklist_id}", response_model=APIResponse)
+async def delete_checklist(
+    checklist_id: str,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """체크리스트 완전 삭제 (연관 데이터 포함)"""
+    try:
+        # 체크리스트 확인 및 권한 검증
+        cl = checklist.get(db=db, id=checklist_id)
+        if not cl:
+            raise HTTPException(
+                status_code=404,
+                detail="체크리스트를 찾을 수 없습니다."
+            )
+        
+        if cl.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="이 체크리스트에 접근할 권한이 없습니다."
+            )
+        
+        # 삭제 전 관련 정보 로깅
+        items_count = len(cl.items) if cl.items else 0
+        logger.info(f"Deleting checklist {checklist_id} with {items_count} items by user {current_user.id}")
+        
+        # Feedback 수동 삭제 (cascade가 설정되지 않음)
+        from app.models.database import Feedback
+        feedbacks = db.query(Feedback).filter(Feedback.checklist_id == checklist_id).all()
+        for feedback in feedbacks:
+            db.delete(feedback)
+        
+        if feedbacks:
+            logger.info(f"Deleted {len(feedbacks)} feedbacks for checklist {checklist_id}")
+        
+        # 체크리스트 삭제 (items와 details는 cascade로 자동 삭제)
+        db.delete(cl)
+        db.commit()
+        
+        logger.info(f"Checklist {checklist_id} successfully deleted by user {current_user.id}")
+        
+        return APIResponse(
+            success=True,
+            message="체크리스트가 성공적으로 삭제되었습니다."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete checklist error: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="체크리스트 삭제 중 오류가 발생했습니다."
         ) 
