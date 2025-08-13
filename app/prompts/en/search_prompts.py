@@ -25,21 +25,67 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
     """Generate English search prompt for checklist items (responseSchema compatible)"""
     current_year = datetime.now().year
     
-    return f"""Search for "{checklist_item}" and provide EXACTLY 3-5 separate tips.
+    return f"""Follow these steps to provide information about "{checklist_item}":
 
-Requirements:
-- tips: MUST be an array of 3-5 separate strings, each 15-50 words only
-- contacts: array of contact objects with name/phone/email
-- links: array of link objects with title/url
-- price: single price string if found
-- location: single location string if found
+Step 1: First understand what "{checklist_item}" means
+Step 2: Think of 3-5 specific actions the user can actually take
+Step 3: Write each action as an independent complete sentence
+Step 4: Format as JSON following the examples below
 
-Each tip MUST be:
-✓ ONE specific actionable step
-✓ Maximum 50 words  
-✓ No markdown, no bullet points
-✓ Complete sentence
+Example 1:
+Search: "Get travel insurance"
+Thinking process: Travel insurance covers risks during trips. User needs to select product, check coverage, and complete purchase.
+Response: {{
+  "tips": [
+    "Compare coverage limits based on your travel duration and destination",
+    "Ensure medical expenses and lost luggage coverage are included",
+    "Check if your credit card already provides travel insurance benefits",
+    "Disclose any pre-existing medical conditions before purchasing"
+  ],
+  "contacts": [],
+  "links": [{{"title": "Travel Insurance Comparison", "url": "https://example.com"}}],
+  "price": "From $3 per day",
+  "location": null
+}}
 
-Context: {user_country or 'Korea'}, {current_year}, {user_language or 'English'}
+Example 2:
+Search: "Create workout routine"
+Thinking process: Workout routine is a regular exercise plan. User needs to set schedule, choose exercises, adjust intensity, and track progress.
+Response: {{
+  "tips": [
+    "Schedule 3-4 regular workout sessions per week and mark them in your calendar",
+    "Balance strength training and cardio exercises in your routine",
+    "Start with appropriate intensity for your fitness level and gradually increase",
+    "Include proper stretching before and after workouts to prevent injuries",
+    "Track your progress weekly to monitor improvements"
+  ],
+  "contacts": [],
+  "links": [],
+  "price": null,
+  "location": null
+}}
 
-CRITICAL: Return exactly 3-5 separate tips, not one long text."""
+Example 3:
+Search: "Write a resume"
+Thinking process: Resume is essential document for job applications. User needs structure, content emphasis, and proper formatting.
+Response: {{
+  "tips": [
+    "List work experience in reverse chronological order for better readability",
+    "Include specific achievements and quantifiable results for credibility",
+    "Highlight key skills relevant to the position you're applying for",
+    "Keep it concise and clear within two pages maximum"
+  ],
+  "contacts": [],
+  "links": [{{"title": "Resume Templates", "url": "https://example.com"}}],
+  "price": null,
+  "location": null
+}}
+
+Now for "{checklist_item}":
+1. First understand what this is
+2. Think of specific actionable steps
+3. Respond in the exact JSON format as the examples above
+
+Context: {user_country or 'Korea'}, {current_year}
+
+Important: Do not include the thinking process, only provide the final JSON response."""

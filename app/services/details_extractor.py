@@ -323,21 +323,36 @@ class DetailsExtractor:
     
     def _split_long_tip(self, tip: str) -> List[str]:
         """긴 tip을 여러 개의 짧은 tip으로 분할"""
+        tip = tip.strip()
+        
+        # 1. JSON 구조가 포함된 경우 정리
+        if tip.startswith('tips:') or '"' in tip or '[' in tip or ']' in tip:
+            # JSON 구조 정리
+            tip = self._clean_json_artifacts(tip)
+        
         # 너무 짧으면 그대로 반환
         if len(tip) <= 100:
-            return [tip.strip()]
+            return [tip]
         
         tips = []
         
-        # 1. 번호나 불릿 포인트로 분할 시도
-        if re.search(r'\d+\.\s|[-•*]\s', tip):
+        # 2. \",\" 패턴으로 분할 (JSON 배열에서 나온 경우)
+        if '\",' in tip or '\",\n' in tip:
+            parts = re.split(r'\"[,\s]*\n*\"', tip)
+            for part in parts:
+                clean_part = part.strip().strip('"').strip()
+                if len(clean_part) > 10 and not clean_part.startswith('[') and not clean_part.endswith(']'):
+                    tips.append(clean_part)
+        
+        # 3. 번호나 불릿 포인트로 분할 시도
+        elif re.search(r'\d+\.\s|[-•*]\s', tip):
             parts = re.split(r'(?=\d+\.\s|[-•*]\s)', tip)
             for part in parts:
                 clean_part = re.sub(r'^\d+\.\s*|^[-•*]\s*', '', part.strip())
                 if len(clean_part) > 10:
                     tips.append(clean_part)
         
-        # 2. 문장 단위로 분할 시도
+        # 4. 문장 단위로 분할 시도
         elif len(tip) > 200:
             sentences = re.split(r'[.!?]\s+', tip)
             current_tip = ""
@@ -353,11 +368,34 @@ class DetailsExtractor:
             if current_tip.strip():
                 tips.append(current_tip.strip())
         
-        # 3. 분할 실패 시 원본 반환
+        # 5. 분할 실패 시 원본 반환
         if not tips:
-            tips = [tip.strip()]
+            tips = [tip]
         
-        return tips[:3]  # 최대 3개로 제한
+        return tips[:5]  # 최대 5개로 제한
+    
+    def _clean_json_artifacts(self, text: str) -> str:
+        """JSON 구조 아티팩트 제거"""
+        # JSON 접두사 제거
+        if text.startswith('tips:'):
+            text = text[5:].strip()
+        
+        # 배열 브래킷 제거
+        text = re.sub(r'^\[|\]$', '', text.strip())
+        
+        # 따옴표 정리
+        text = re.sub(r'^"|"$', '', text.strip())
+        
+        # 이스케이프 문자 처리
+        text = text.replace('\\"', '"')
+        text = text.replace('\\n', ' ')
+        text = text.replace('\n"', '')
+        text = text.replace('",', '.')
+        
+        # 연속된 공백 정리
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
     
     def _filter_and_dedupe_tips(self, tips: List[str]) -> List[str]:
         """팁 필터링 및 중복 제거"""
