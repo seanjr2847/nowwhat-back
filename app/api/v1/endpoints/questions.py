@@ -1052,33 +1052,9 @@ async def generate_questions_stream(
                 
                 logger.info(f"🌊 Primary stream completed [{stream_id}], accumulated: {len(accumulated_content)} chars, questions sent: {question_count}")
                 
-                # 실시간 파싱으로 질문들이 전송된 경우
+                # 스트림 완료 즉시 [DONE] 전송 (질문이 파싱되었다면)
                 if len(parsed_questions) > 0:
-                    # q1 누락 체크 및 자동 복구
-                    sent_ids = [q.get('id') for q in parsed_questions]
-                    if 'q1' not in sent_ids and '"id": "q1"' in accumulated_content:
-                        logger.warning(f"⚠️ q1 missing, attempting recovery [{stream_id}]")
-                        
-                        # q1 긴급 복구 시도
-                        q1_start = accumulated_content.find('{', accumulated_content.find('"id": "q1"') - 50)
-                        if q1_start >= 0:
-                            q1_search = accumulated_content[q1_start:q1_start + 2000]
-                            # 빠른 q1 추출 시도
-                            if '{' in q1_search and '}' in q1_search:
-                                try:
-                                    # q1만 파싱해보기
-                                    temp_parsed = await _parse_questions_realtime(
-                                        '', q1_search, set(), [], 0, stream_id
-                                    )
-                                    if temp_parsed and temp_parsed[0].get('id') == 'q1':
-                                        # q1 복구 성공 - 맨 앞에 삽입
-                                        parsed_questions.insert(0, temp_parsed[0])
-                                        logger.info(f"✅ q1 successfully recovered [{stream_id}]")
-                                except:
-                                    pass
-                    
-                    logger.info(f"✅ Real-time parsing successful [{stream_id}]: {len(parsed_questions)} questions sent")
-                    # 완료 신호 (정상) - 질문별 스트리밍 성공
+                    logger.info(f"✅ Sending [DONE] immediately after stream end [{stream_id}]: {len(parsed_questions)} questions")
                     complete_data = {
                         "status": "completed", 
                         "message": f"질문 생성이 완료되었습니다. [{stream_id}]",
@@ -1087,6 +1063,17 @@ async def generate_questions_stream(
                         "streaming_mode": "per_question"
                     }
                     yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                    yield f"data: [DONE]\n\n"
+                    
+                    # 메모리 정리 및 버퍼 풀 반환
+                    try:
+                        _return_buffer(current_question_buffer)
+                    except:
+                        pass
+                    return  # 여기서 종료
+                
+                # 실시간 파싱으로 질문들이 전송된 경우는 이미 처리됨 (위에서 return)
+                # 따라서 이 부분은 실행되지 않음
                 else:
                     # 실시간 파싱 실패시 batch_fallback 모드로 처리
                     logger.info(f"🔍 Real-time parsing failed, trying batch processing [{stream_id}]")
@@ -1124,6 +1111,14 @@ async def generate_questions_stream(
                             "streaming_mode": "batch_processing"
                         }
                         yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
+                        yield f"data: [DONE]\n\n"  # 즉시 [DONE] 전송
+                        
+                        # 메모리 정리 및 버퍼 풀 반환
+                        try:
+                            _return_buffer(current_question_buffer)
+                        except:
+                            pass
+                        return  # 여기서 종료
                     else:
                         # 파싱 불가능한 경우 - 기본 템플릿 사용 (API 호출 없이)
                         logger.info(f"🔄 Using default template due to corrupted stream [{stream_id}]")
@@ -1174,15 +1169,14 @@ async def generate_questions_stream(
                             "streaming_mode": "default_template"
                         }
                         yield f"data: {json.dumps(complete_data, ensure_ascii=False)}\n\n"
-                
-                # [DONE] 신호 즉시 전송 (불필요한 대기 제거)
-                yield f"data: [DONE]\n\n"
-                
-                # 메모리 정리 및 버퍼 풀 반환
-                try:
-                    _return_buffer(current_question_buffer)
-                except:
-                    pass  # 에러 무시
+                        yield f"data: [DONE]\n\n"  # 즉시 [DONE] 전송
+                        
+                        # 메모리 정리 및 버퍼 풀 반환
+                        try:
+                            _return_buffer(current_question_buffer)
+                        except:
+                            pass
+                        return  # 여기서 종료
                 
             except Exception as e:
                 logger.error(f"🚨 Enhanced streaming error [{stream_id}]: {str(e)}")

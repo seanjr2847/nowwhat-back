@@ -409,9 +409,7 @@ class GeminiApiClient:
                         },
                         "required": ["title"]
                     },
-                    "description": "체크리스트 항목들",
-                    "minItems": 3,
-                    "maxItems": 10
+                    "description": "체크리스트 항목들"
                 }
             },
             "required": ["items"]
