@@ -94,7 +94,7 @@ class LinkInfo(BaseModel):
     url: str
 
 class ItemDetails(BaseModel):
-    tips: Optional[List[str]] = None
+    steps: Optional[List[str]] = None  # tips를 steps로 변경 - 실행 단계
     contacts: Optional[List[ContactInfo]] = None
     links: Optional[List[LinkInfo]] = None
     price: Optional[str] = None

@@ -956,7 +956,7 @@ class ChecklistOrchestrator:
                 if details_data:
                     item_details = ChecklistItemDetails(
                         item_id=item.id,
-                        tips=details_data.get("tips"),
+                        tips=details_data.get("steps") or details_data.get("tips"),  # steps 우선, tips는 호환성
                         contacts=details_data.get("contacts"),
                         links=details_data.get("links"),
                         price=details_data.get("price"),

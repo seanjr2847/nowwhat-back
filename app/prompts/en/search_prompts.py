@@ -15,7 +15,7 @@ class LinkInfo(BaseModel):
     url: str
 
 class SearchResponse(BaseModel):
-    tips: List[str]
+    steps: List[str]  # Changed from tips to steps - actionable guide
     contacts: List[ContactInfo]
     links: List[LinkInfo]
     price: Optional[str] = None
@@ -25,22 +25,23 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
     """Generate English search prompt for checklist items (responseSchema compatible)"""
     current_year = datetime.now().year
     
-    return f"""Follow these steps to provide information about "{checklist_item}":
+    return f"""Provide specific action steps to complete "{checklist_item}".
 
-Step 1: First understand what "{checklist_item}" means
-Step 2: Think of 3-5 specific actions the user can actually take
-Step 3: Write each action as an independent complete sentence
-Step 4: Format as JSON following the examples below
+Instructions:
+1. Understand what "{checklist_item}" is
+2. Write 3-5 sequential action steps needed to complete it
+3. Each step should start with "Step 1:", "Step 2:", etc.
+4. Make each step specific and actionable
 
 Example 1:
-Search: "Get travel insurance"
-Thinking process: Travel insurance covers risks during trips. User needs to select product, check coverage, and complete purchase.
+Item: "Get travel insurance"
 Response: {{
-  "tips": [
-    "Compare coverage limits based on your travel duration and destination",
-    "Ensure medical expenses and lost luggage coverage are included",
-    "Check if your credit card already provides travel insurance benefits",
-    "Disclose any pre-existing medical conditions before purchasing"
+  "steps": [
+    "Step 1: Check your travel dates and destination to determine coverage needs (medical, luggage, etc.)",
+    "Step 2: Visit 2-3 insurance company websites to compare travel insurance products",
+    "Step 3: Compare premiums and coverage limits to select the best product",
+    "Step 4: Complete the online application form and make payment",
+    "Step 5: Download the insurance certificate and save it to your phone for the trip"
   ],
   "contacts": [],
   "links": [{{"title": "Travel Insurance Comparison", "url": "https://example.com"}}],
@@ -49,15 +50,14 @@ Response: {{
 }}
 
 Example 2:
-Search: "Create workout routine"
-Thinking process: Workout routine is a regular exercise plan. User needs to set schedule, choose exercises, adjust intensity, and track progress.
+Item: "Create workout routine"
 Response: {{
-  "tips": [
-    "Schedule 3-4 regular workout sessions per week and mark them in your calendar",
-    "Balance strength training and cardio exercises in your routine",
-    "Start with appropriate intensity for your fitness level and gradually increase",
-    "Include proper stretching before and after workouts to prevent injuries",
-    "Track your progress weekly to monitor improvements"
+  "steps": [
+    "Step 1: Assess your current fitness level and available workout time slots",
+    "Step 2: Schedule 3-4 workout days per week and add them as recurring calendar events",
+    "Step 3: Plan specific exercise types for each day (Monday-upper body, Wednesday-lower body, Friday-full body)",
+    "Step 4: Start with light intensity and increase by 10% each week",
+    "Step 5: Download a workout tracking app and record your daily exercise and progress"
   ],
   "contacts": [],
   "links": [],
@@ -66,14 +66,14 @@ Response: {{
 }}
 
 Example 3:
-Search: "Write a resume"
-Thinking process: Resume is essential document for job applications. User needs structure, content emphasis, and proper formatting.
+Item: "Write a resume"
 Response: {{
-  "tips": [
-    "List work experience in reverse chronological order for better readability",
-    "Include specific achievements and quantifiable results for credibility",
-    "Highlight key skills relevant to the position you're applying for",
-    "Keep it concise and clear within two pages maximum"
+  "steps": [
+    "Step 1: Read the job posting to understand requirements and preferred qualifications",
+    "Step 2: List your work experience and projects from the past 3 years in chronological order",
+    "Step 3: Add specific achievements and metrics for each role (sales increase %, projects completed, etc.)",
+    "Step 4: Choose a resume template and input personal info, experience, education, and certifications",
+    "Step 5: Save the completed resume as PDF with filename 'YourName_Position_Resume'"
   ],
   "contacts": [],
   "links": [{{"title": "Resume Templates", "url": "https://example.com"}}],
@@ -81,23 +81,15 @@ Response: {{
   "location": null
 }}
 
-Now for "{checklist_item}":
-1. First understand what this is
-2. Think of specific actionable steps
-3. Respond in the exact JSON format as the examples above
+Action steps for "{checklist_item}":
+- Each step starts with "Step N:"
+- Use specific action verbs (visit, create, download, etc.)
+- Sequential steps that can be followed to completion
 
 Context: {user_country or 'Korea'}, {current_year}
 
 Critical Rules:
-- Do not include the thinking process, only provide the final JSON response
-- NEVER include JSON structure inside the tips array
-- NEVER use "tips:", "[", "]", "{", "}" characters inside tips
-- NEVER use ```json markdown code blocks
-- Each tip must be a complete English sentence
-
-Must be exactly this format:
-"tips": [
-  "First practical advice here",
-  "Second practical advice here", 
-  "Third practical advice here"
-]"""
+- Include only actionable steps in the steps array
+- Each step must start with "Step N:" as a complete sentence
+- NEVER use JSON structure or special characters
+- NEVER use markdown code blocks"""

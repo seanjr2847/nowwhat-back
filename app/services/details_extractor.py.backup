@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ItemDetails:
     """체크리스트 아이템의 상세 정보"""
-    steps: Optional[List[str]] = None  # 실행 가능한 단계별 가이드
+    steps: Optional[List[str]] = None  # tips를 steps로 변경 - 실행 단계
     contacts: Optional[List[Dict[str, str]]] = None
     links: Optional[List[Dict[str, str]]] = None
     price: Optional[str] = None
@@ -93,7 +93,7 @@ class DetailsExtractor:
         
         # 기존 정규식 방식으로 추출
         details = ItemDetails(
-            steps=self._extract_steps(combined_content, item_text),
+            tips=self._extract_tips(combined_content, item_text),
             contacts=self._extract_contacts(combined_content),
             links=self._extract_links(combined_content, all_sources),
             price=self._extract_price(combined_content, item_text),
@@ -104,20 +104,20 @@ class DetailsExtractor:
     
     def _merge_structured_data(self, structured_data: List[dict]) -> ItemDetails:
         """여러 JSON 응답을 병합하여 ItemDetails 생성"""
-        merged_steps = []
+        merged_tips = []
         merged_contacts = []
         merged_links = []
         price = None
         location = None
         
         for data in structured_data:
-            # Steps 병합 with smart splitting
-            if data.get("steps") and isinstance(data["steps"], list):
-                for step in data["steps"]:
-                    if isinstance(step, str):
-                        # 긴 step을 여러 개로 분리 (Gemini가 하나로 뭉쳐서 보낸 경우 처리)
-                        processed_steps = self._split_long_step(step)
-                        merged_steps.extend(processed_steps)
+            # Tips 병합 with smart splitting
+            if data.get("tips") and isinstance(data["tips"], list):
+                for tip in data["tips"]:
+                    if isinstance(tip, str):
+                        # 긴 tip을 여러 개로 분리 (Gemini가 하나로 뭉쳐서 보낸 경우 처리)
+                        processed_tips = self._split_long_tip(tip)
+                        merged_tips.extend(processed_tips)
             
             # Contacts 병합
             if data.get("contacts") and isinstance(data["contacts"], list):
@@ -136,41 +136,41 @@ class DetailsExtractor:
                 location = data["location"]
         
         # 중복 제거 및 품질 필터링
-        unique_steps = self._filter_and_dedupe_steps(merged_steps) if merged_steps else None
+        unique_tips = self._filter_and_dedupe_tips(merged_tips) if merged_tips else None
         unique_contacts = merged_contacts[:2] if merged_contacts else None
         unique_links = merged_links[:3] if merged_links else None
         
-        logger.info(f"Merged steps: {len(unique_steps) if unique_steps else 0} final steps")
-        if unique_steps:
-            for i, step in enumerate(unique_steps):
-                logger.debug(f"  Step {i+1}: {step[:60]}...")
+        logger.info(f"Merged tips: {len(unique_tips) if unique_tips else 0} final tips")
+        if unique_tips:
+            for i, tip in enumerate(unique_tips):
+                logger.debug(f"  Tip {i+1}: {tip[:60]}...")
         
         return ItemDetails(
-            steps=unique_steps,
+            tips=unique_tips,
             contacts=unique_contacts,
             links=unique_links,
             price=price,
             location=location
         )
     
-    def _extract_steps(self, content: str, item_text: str) -> Optional[List[str]]:
-        """실행 가능한 단계 추출"""
-        step_patterns = [
+    def _extract_tips(self, content: str, item_text: str) -> Optional[List[str]]:
+        """실용적인 팁 추출"""
+        tip_patterns = [
             r'팁[:：]\s*([^.!?]+[.!?])',
             r'추천[:：]\s*([^.!?]+[.!?])',
             r'주의사항[:：]\s*([^.!?]+[.!?])',
             r'방법[:：]\s*([^.!?]+[.!?])',
         ]
         
-        steps = []
+        tips = []
         
         # 패턴 기반 추출
-        for pattern in step_patterns:
+        for pattern in tip_patterns:
             matches = re.findall(pattern, content, re.IGNORECASE)
             for match in matches:
-                clean_step = match.strip()
-                if len(clean_step) > 10 and len(clean_step) < 100:
-                    steps.append(clean_step)
+                clean_tip = match.strip()
+                if len(clean_tip) > 10 and len(clean_tip) < 100:
+                    tips.append(clean_tip)
         
         # 문장 단위에서 실용적 팁 찾기
         sentences = re.split(r'[.!?]\s+', content)
@@ -179,11 +179,11 @@ class DetailsExtractor:
         for sentence in sentences:
             if any(keyword in sentence for keyword in practical_keywords):
                 if 20 <= len(sentence) <= 120:
-                    steps.append(sentence.strip())
+                    tips.append(sentence.strip())
         
         # 중복 제거 및 정렬
-        unique_steps = list(dict.fromkeys(steps))
-        return unique_steps[:5] if unique_steps else None
+        unique_tips = list(dict.fromkeys(tips))
+        return unique_tips[:3] if unique_tips else None
     
     def _extract_contacts(self, content: str) -> Optional[List[Dict[str, str]]]:
         """연락처 정보 추출"""
@@ -321,25 +321,25 @@ class DetailsExtractor:
         # 빈 결과라도 딕셔너리를 반환 (None 대신)
         return result
     
-    def _split_long_step(self, step: str) -> List[str]:
-        """긴 step을 여러 개의 짧은 step으로 분할"""
-        step = step.strip()
+    def _split_long_tip(self, tip: str) -> List[str]:
+        """긴 tip을 여러 개의 짧은 tip으로 분할"""
+        tip = tip.strip()
         
         # 1. JSON 구조가 포함된 경우 정리
-        if step.startswith('steps:') or '"' in step or '[' in step or ']' in step:
+        if tip.startswith('tips:') or '"' in tip or '[' in tip or ']' in tip:
             # JSON 구조 정리
-            step = self._clean_json_artifacts(step)
+            tip = self._clean_json_artifacts(tip)
         
         # 너무 짧으면 그대로 반환
-        if len(step) <= 100:
-            return [step]
+        if len(tip) <= 100:
+            return [tip]
         
-        steps = []
+        tips = []
         
         # 2. JSON 배열 형태 분할 시도
-        if any(x in step for x in ['"', ',', '[', ']', 'steps:']):
+        if any(x in tip for x in ['"', ',', '[', ']', 'tips:']):
             # JSON 구조 정리 후 분할
-            cleaned = self._clean_json_artifacts(step)
+            cleaned = self._clean_json_artifacts(tip)
             
             # 쉼표와 따옴표로 구분된 패턴들 시도
             patterns = [
@@ -358,50 +358,50 @@ class DetailsExtractor:
                         if len(clean_part) > 10:
                             # 끝에 있는 불완전한 문구 제거
                             clean_part = re.sub(r'\.\.+$', '', clean_part).strip()
-                            if clean_part and not any(x in clean_part.lower() for x in ['steps:', 'contacts', 'links']):
-                                steps.append(clean_part)
-                    if steps:
+                            if clean_part and not any(x in clean_part.lower() for x in ['tips:', 'contacts', 'links']):
+                                tips.append(clean_part)
+                    if tips:
                         break
             
             # 위 방법이 실패하면 단순한 줄바꿈으로 분할 시도 (세 번째 예시용)
-            if not steps and '\n' in cleaned:
+            if not tips and '\n' in cleaned:
                 lines = cleaned.split('\n')
                 for line in lines:
                     clean_line = line.strip().strip('"').strip()
-                    if len(clean_line) > 10 and not any(x in clean_line.lower() for x in ['steps:', 'contacts', 'links', '[', ']']):
+                    if len(clean_line) > 10 and not any(x in clean_line.lower() for x in ['tips:', 'contacts', 'links', '[', ']']):
                         clean_line = re.sub(r'\.\.+$', '', clean_line).strip()
                         if clean_line:
-                            steps.append(clean_line)
+                            tips.append(clean_line)
         
         # 3. 번호나 불릿 포인트로 분할 시도
-        elif re.search(r'\d+\.\s|[-•*]\s', step):
-            parts = re.split(r'(?=\d+\.\s|[-•*]\s)', step)
+        elif re.search(r'\d+\.\s|[-•*]\s', tip):
+            parts = re.split(r'(?=\d+\.\s|[-•*]\s)', tip)
             for part in parts:
                 clean_part = re.sub(r'^\d+\.\s*|^[-•*]\s*', '', part.strip())
                 if len(clean_part) > 10:
-                    steps.append(clean_part)
+                    tips.append(clean_part)
         
         # 4. 문장 단위로 분할 시도
-        elif len(step) > 200:
-            sentences = re.split(r'[.!?]\s+', step)
-            current_step = ""
+        elif len(tip) > 200:
+            sentences = re.split(r'[.!?]\s+', tip)
+            current_tip = ""
             
             for sentence in sentences:
-                if len(current_step + sentence) < 100:
-                    current_step += sentence + ". "
+                if len(current_tip + sentence) < 100:
+                    current_tip += sentence + ". "
                 else:
-                    if current_step.strip():
-                        steps.append(current_step.strip())
-                    current_step = sentence + ". "
+                    if current_tip.strip():
+                        tips.append(current_tip.strip())
+                    current_tip = sentence + ". "
             
-            if current_step.strip():
-                steps.append(current_step.strip())
+            if current_tip.strip():
+                tips.append(current_tip.strip())
         
         # 5. 분할 실패 시 원본 반환
-        if not steps:
-            steps = [step]
+        if not tips:
+            tips = [tip]
         
-        return steps[:5]  # 최대 5개로 제한
+        return tips[:5]  # 최대 5개로 제한
     
     def _clean_json_artifacts(self, text: str) -> str:
         """JSON 구조 아티팩트 제거 (분할용)"""
@@ -409,11 +409,11 @@ class DetailsExtractor:
         text = re.sub(r'```json|```', '', text)
         
         # JSON 접두사 제거
-        if text.startswith('steps:'):
+        if text.startswith('tips:'):
             text = text[5:].strip()
         
         # JSON 객체 시작/끝 제거
-        text = re.sub(r'^\s*{\s*"steps":\s*\[', '', text)
+        text = re.sub(r'^\s*{\s*"tips":\s*\[', '', text)
         text = re.sub(r'\]\s*,?\s*"contacts".*$', '', text, flags=re.DOTALL)
         
         # 배열 브래킷 제거
@@ -428,34 +428,34 @@ class DetailsExtractor:
         
         return text.strip()
     
-    def _filter_and_dedupe_steps(self, steps: List[str]) -> List[str]:
-        """단계 필터링 및 중복 제거"""
-        if not steps:
+    def _filter_and_dedupe_tips(self, tips: List[str]) -> List[str]:
+        """팁 필터링 및 중복 제거"""
+        if not tips:
             return []
         
-        filtered_steps = []
+        filtered_tips = []
         seen = set()
         
-        for step in steps:
-            step = step.strip()
+        for tip in tips:
+            tip = tip.strip()
             
-            # 너무 짧거나 긴 단계 제거
-            if len(step) < 10 or len(step) > 300:
+            # 너무 짧거나 긴 팁 제거
+            if len(tip) < 10 or len(tip) > 300:
                 continue
             
             # 중복 확인 (소문자 변환하여 비교)
-            step_lower = step.lower()
-            if step_lower in seen:
+            tip_lower = tip.lower()
+            if tip_lower in seen:
                 continue
             
-            seen.add(step_lower)
-            filtered_steps.append(step)
+            seen.add(tip_lower)
+            filtered_tips.append(tip)
             
             # 최대 5개로 제한
-            if len(filtered_steps) >= 5:
+            if len(filtered_tips) >= 5:
                 break
         
-        return filtered_steps
+        return filtered_tips
 
 # 서비스 인스턴스
 details_extractor = DetailsExtractor()
