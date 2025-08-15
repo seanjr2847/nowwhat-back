@@ -88,4 +88,16 @@ Now for "{checklist_item}":
 
 Context: {user_country or 'Korea'}, {current_year}
 
-Important: Do not include the thinking process, only provide the final JSON response."""
+Critical Rules:
+- Do not include the thinking process, only provide the final JSON response
+- NEVER include JSON structure inside the tips array
+- NEVER use "tips:", "[", "]", "{", "}" characters inside tips
+- NEVER use ```json markdown code blocks
+- Each tip must be a complete English sentence
+
+Must be exactly this format:
+"tips": [
+  "First practical advice here",
+  "Second practical advice here", 
+  "Third practical advice here"
+]"""

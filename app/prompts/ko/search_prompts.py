@@ -88,4 +88,16 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 
 상황: {user_country or '한국'}, {current_year}년
 
-중요: 생각 과정은 포함하지 말고 최종 JSON 응답만 제공하세요."""
+중요한 규칙:
+- 생각 과정은 포함하지 말고 최종 JSON 응답만 제공하세요
+- tips 배열 안에는 절대 JSON 구조를 포함하지 마세요
+- tips 안에 "tips:", "[", "]", "{", "}" 같은 문자는 절대 사용 금지
+- ```json 같은 마크다운 코드 블록도 사용 금지
+- 각 tip은 완전한 한국어 문장이어야 합니다
+
+반드시 이런 형태여야 합니다:
+"tips": [
+  "첫 번째 실용적인 조언입니다",
+  "두 번째 실용적인 조언입니다",
+  "세 번째 실용적인 조언입니다"
+]"""

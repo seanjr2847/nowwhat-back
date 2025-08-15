@@ -336,13 +336,42 @@ class DetailsExtractor:
         
         tips = []
         
-        # 2. \",\" 패턴으로 분할 (JSON 배열에서 나온 경우)
-        if '\",' in tip or '\",\n' in tip:
-            parts = re.split(r'\"[,\s]*\n*\"', tip)
-            for part in parts:
-                clean_part = part.strip().strip('"').strip()
-                if len(clean_part) > 10 and not clean_part.startswith('[') and not clean_part.endswith(']'):
-                    tips.append(clean_part)
+        # 2. JSON 배열 형태 분할 시도
+        if any(x in tip for x in ['"', ',', '[', ']', 'tips:']):
+            # JSON 구조 정리 후 분할
+            cleaned = self._clean_json_artifacts(tip)
+            
+            # 쉼표와 따옴표로 구분된 패턴들 시도
+            patterns = [
+                r'",\s*"',           # "text", "text"
+                r'"\s*,\s*\n*\s*"',  # "text" , "text"
+                r'"\.\..*?"',        # "text..", "text"
+                r'\.\."\s*,?\s*"',   # text..", "text"
+                r'\.",\s*"',         # text.", "text"
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, cleaned):
+                    parts = re.split(pattern, cleaned)
+                    for part in parts:
+                        clean_part = part.strip().strip('"').strip()
+                        if len(clean_part) > 10:
+                            # 끝에 있는 불완전한 문구 제거
+                            clean_part = re.sub(r'\.\.+$', '', clean_part).strip()
+                            if clean_part and not any(x in clean_part.lower() for x in ['tips:', 'contacts', 'links']):
+                                tips.append(clean_part)
+                    if tips:
+                        break
+            
+            # 위 방법이 실패하면 단순한 줄바꿈으로 분할 시도 (세 번째 예시용)
+            if not tips and '\n' in cleaned:
+                lines = cleaned.split('\n')
+                for line in lines:
+                    clean_line = line.strip().strip('"').strip()
+                    if len(clean_line) > 10 and not any(x in clean_line.lower() for x in ['tips:', 'contacts', 'links', '[', ']']):
+                        clean_line = re.sub(r'\.\.+$', '', clean_line).strip()
+                        if clean_line:
+                            tips.append(clean_line)
         
         # 3. 번호나 불릿 포인트로 분할 시도
         elif re.search(r'\d+\.\s|[-•*]\s', tip):
@@ -375,24 +404,26 @@ class DetailsExtractor:
         return tips[:5]  # 최대 5개로 제한
     
     def _clean_json_artifacts(self, text: str) -> str:
-        """JSON 구조 아티팩트 제거"""
+        """JSON 구조 아티팩트 제거 (분할용)"""
+        # 마크다운 코드 블록 제거
+        text = re.sub(r'```json|```', '', text)
+        
         # JSON 접두사 제거
         if text.startswith('tips:'):
             text = text[5:].strip()
         
+        # JSON 객체 시작/끝 제거
+        text = re.sub(r'^\s*{\s*"tips":\s*\[', '', text)
+        text = re.sub(r'\]\s*,?\s*"contacts".*$', '', text, flags=re.DOTALL)
+        
         # 배열 브래킷 제거
         text = re.sub(r'^\[|\]$', '', text.strip())
-        
-        # 따옴표 정리
-        text = re.sub(r'^"|"$', '', text.strip())
         
         # 이스케이프 문자 처리
         text = text.replace('\\"', '"')
         text = text.replace('\\n', ' ')
-        text = text.replace('\n"', '')
-        text = text.replace('",', '.')
         
-        # 연속된 공백 정리
+        # 연속된 공백 정리 (쉼표는 유지)
         text = re.sub(r'\s+', ' ', text)
         
         return text.strip()
