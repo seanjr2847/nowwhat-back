@@ -13,6 +13,8 @@ import json
 import logging
 from typing import AsyncGenerator, Any, Dict
 import google.generativeai as genai
+from google import genai as google_genai
+from google.genai import types
 
 from app.core.config import settings
 from app.prompts.enhanced_prompts import get_enhanced_knowledge_prompt
@@ -37,6 +39,7 @@ class GeminiApiClient:
         
         비즈니스 로직:
         - Gemini API 키 검증 및 모델 초기화
+        - 새로운 google.genai 클라이언트와 기존 generativeai 클라이언트 모두 지원
         - API 키 미설정 시 즉시 오류 발생으로 조기 실패 감지
         - 초기화 성공 시 로깅으로 설정 상태 확인 가능
         """
@@ -44,9 +47,18 @@ class GeminiApiClient:
             logger.error("Cannot initialize GeminiApiClient: GEMINI_API_KEY not set")
             raise ValueError("GEMINI_API_KEY not configured")
         
+        # 기존 generativeai 클라이언트 (일반 API용)
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
-        logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL}")
+        
+        # 새로운 google.genai 클라이언트 (Search grounding용)
+        try:
+            self.new_client = google_genai.Client(api_key=settings.GEMINI_API_KEY)
+            logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL} (with Search grounding support)")
+        except Exception as e:
+            logger.warning(f"New google.genai client initialization failed: {e}")
+            self.new_client = None
+            logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL} (legacy mode)")
     
     async def call_api(self, prompt: str) -> str:
         """Gemini API 일반 호출 (비스트리밍)
@@ -97,27 +109,28 @@ class GeminiApiClient:
         """Gemini API 웹 검색 기능 포함 호출
         
         비즈니스 로직:
-        - Google Search Retrieval 기능을 활용한 실시간 정보 검색
+        - Google Search grounding 기능을 활용한 실시간 정보 검색
         - 웹 검색 결과가 포함된 Structured Output JSON 응답
-        - 검색 실패 시 일반 API로 자동 폴백하여 서비스 연속성 보장
+        - 검색 실패 시 enhanced knowledge로 자동 폴백
         - grounding metadata 정보로 검색 품질 및 신뢰성 확인
         """
         try:
             logger.debug(f"Calling Gemini API with search enabled (prompt length: {len(prompt)} chars)")
             
-            # Google Search를 사용하는 모델로 생성 (Gemini 2.5+에서는 google_search 사용)
-            model_with_search = genai.GenerativeModel(
-                settings.GEMINI_MODEL,
-                tools=[{"google_search": {}}]
-            )
-            
             try:
+                # Google Search grounding을 사용하는 모델 생성
+                # 최신 방식: tools 파라미터에 google_search_retrieval 사용
+                model_with_search = genai.GenerativeModel(
+                    model_name=settings.GEMINI_MODEL,
+                    tools=['google_search_retrieval']
+                )
+                
                 # 웹 검색 기능 활성화하여 호출
                 response = await asyncio.to_thread(
                     model_with_search.generate_content,
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=int(GeminiConfig.MAX_OUTPUT_TOKENS * 0.8),  # 검색 기능 사용 시 토큰 여유
+                        max_output_tokens=int(GeminiConfig.MAX_OUTPUT_TOKENS * 0.8),
                         temperature=GeminiConfig.TEMPERATURE,
                         top_p=GeminiConfig.TOP_P,
                         top_k=GeminiConfig.TOP_K,
@@ -128,11 +141,13 @@ class GeminiApiClient:
                 
                 # grounding metadata 확인
                 self._log_grounding_metadata(response)
+                logger.info("✅ Google Search grounding successful")
                 
             except Exception as search_error:
-                logger.warning(f"Web search failed, falling back to enhanced knowledge: {search_error}")
+                logger.warning(f"Google Search grounding failed: {search_error}")
+                logger.info("Falling back to enhanced knowledge response")
                 
-                # 웹 검색을 사용할 수 없는 경우, 최신 정보 요청 프롬프트 + Structured Output
+                # 웹 검색 실패 시 enhanced knowledge 사용
                 enhanced_prompt = get_enhanced_knowledge_prompt(prompt)
                 response = await asyncio.to_thread(
                     self.model.generate_content,
@@ -414,12 +429,12 @@ class GeminiApiClient:
         비즈니스 로직:
         - Structured Output을 위한 Gemini API 호환 JSON 스키마
         - 간단하고 명확한 구조로 안정성 보장
-        - tips, contacts, links, price, location 등 검색 결과 필드 정의
+        - steps, contacts, links, price, location 등 검색 결과 필드 정의
         """
         return {
             "type": "object",
             "properties": {
-                "tips": {
+                "steps": {
                     "type": "array",
                     "items": {"type": "string"}
                 },
@@ -449,5 +464,5 @@ class GeminiApiClient:
                 "price": {"type": "string"},
                 "location": {"type": "string"}
             },
-            "required": ["tips", "contacts", "links"]
+            "required": ["steps", "contacts", "links"]
         }
