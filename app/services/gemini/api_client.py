@@ -13,13 +13,21 @@ import json
 import logging
 from typing import AsyncGenerator, Any, Dict
 import google.generativeai as genai
-from google import genai as google_genai
-from google.genai import types
 
 from app.core.config import settings
 from app.prompts.enhanced_prompts import get_enhanced_knowledge_prompt
 from .config import GeminiConfig, GeminiAPIError, GeminiResponseError, SearchResult
 from .utils import create_error_result
+
+# 새로운 google.genai 라이브러리 임포트 시도
+try:
+    from google import genai as google_genai
+    from google.genai import types
+    NEW_API_AVAILABLE = True
+except ImportError:
+    NEW_API_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.info("New google.genai API not available, using legacy approach")
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +60,15 @@ class GeminiApiClient:
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
         
         # 새로운 google.genai 클라이언트 (Search grounding용)
-        try:
-            self.new_client = google_genai.Client(api_key=settings.GEMINI_API_KEY)
-            logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL} (with Search grounding support)")
-        except Exception as e:
-            logger.warning(f"New google.genai client initialization failed: {e}")
+        if NEW_API_AVAILABLE:
+            try:
+                self.new_client = google_genai.Client(api_key=settings.GEMINI_API_KEY)
+                logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL} (with Search grounding support)")
+            except Exception as e:
+                logger.warning(f"New google.genai client initialization failed: {e}")
+                self.new_client = None
+                logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL} (legacy mode)")
+        else:
             self.new_client = None
             logger.info(f"GeminiApiClient initialized with model: {settings.GEMINI_MODEL} (legacy mode)")
     
@@ -117,37 +129,46 @@ class GeminiApiClient:
         try:
             logger.debug(f"Calling Gemini API with search enabled (prompt length: {len(prompt)} chars)")
             
-            try:
-                # Google Search grounding을 사용하는 모델 생성
-                # 최신 방식: tools 파라미터에 google_search_retrieval 사용
-                model_with_search = genai.GenerativeModel(
-                    model_name=settings.GEMINI_MODEL,
-                    tools=['google_search_retrieval']
-                )
-                
-                # 웹 검색 기능 활성화하여 호출
-                response = await asyncio.to_thread(
-                    model_with_search.generate_content,
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=int(GeminiConfig.MAX_OUTPUT_TOKENS * 0.8),
-                        temperature=GeminiConfig.TEMPERATURE,
-                        top_p=GeminiConfig.TOP_P,
-                        top_k=GeminiConfig.TOP_K,
+            # 새로운 google.genai API를 사용한 Google Search grounding
+            if NEW_API_AVAILABLE and self.new_client:
+                try:
+                    logger.debug("Attempting Google Search grounding with new API")
+                    
+                    # Google Search grounding 도구 정의
+                    grounding_tool = types.Tool(google_search=types.GoogleSearch())
+                    
+                    # 생성 설정
+                    config = types.GenerateContentConfig(
+                        tools=[grounding_tool],
                         response_mime_type="application/json",
-                        response_schema=self._create_search_schema()
+                        response_schema=self._create_search_schema_new_api()
                     )
-                )
-                
-                # grounding metadata 확인
-                self._log_grounding_metadata(response)
-                logger.info("✅ Google Search grounding successful")
-                
-            except Exception as search_error:
-                logger.warning(f"Google Search grounding failed: {search_error}")
-                logger.info("Falling back to enhanced knowledge response")
-                
-                # 웹 검색 실패 시 enhanced knowledge 사용
+                    
+                    # 새로운 API로 호출
+                    response = await asyncio.to_thread(
+                        self.new_client.models.generate_content,
+                        model=settings.GEMINI_MODEL,
+                        contents=prompt,
+                        config=config
+                    )
+                    
+                    # grounding metadata 확인
+                    self._log_grounding_metadata_new_api(response)
+                    logger.info("✅ Google Search grounding successful with new API")
+                    
+                    # 응답에서 텍스트 추출
+                    response_text = self._extract_text_from_new_response(response)
+                    
+                except Exception as search_error:
+                    logger.warning(f"Google Search grounding failed with new API: {search_error}")
+                    logger.info("Falling back to enhanced knowledge response")
+                    response_text = None
+            else:
+                logger.debug("New google.genai client not available, using enhanced knowledge")
+                response_text = None
+            
+            # 새로운 API 실패 시 기존 방식으로 폴백
+            if not response_text:
                 enhanced_prompt = get_enhanced_knowledge_prompt(prompt)
                 response = await asyncio.to_thread(
                     self.model.generate_content,
@@ -161,20 +182,14 @@ class GeminiApiClient:
                         response_schema=self._create_search_schema()
                     )
                 )
+                response_text = self._extract_text_from_response(response)
         
-            # 응답 처리
-            if not response:
-                logger.error("Gemini returned None response")
-                raise GeminiAPIError("Gemini returned None response")
-            
-            response_text = self._extract_text_from_response(response)
-            
-            logger.debug(f"Gemini search response received (length: {len(response_text) if response_text else 0})")
-            
+            # 최종 응답 검증
             if not response_text or not response_text.strip():
                 logger.error("Gemini returned empty response")
                 raise GeminiAPIError("Gemini returned empty response")
-                
+            
+            logger.debug(f"Gemini search response received (length: {len(response_text)})")
             return response_text
             
         except GeminiAPIError:
@@ -466,3 +481,92 @@ class GeminiApiClient:
             },
             "required": ["steps", "contacts", "links"]
         }
+    
+    def _create_search_schema_new_api(self) -> Dict[str, Any]:
+        """새로운 google.genai API용 검색 응답 스키마"""
+        if not NEW_API_AVAILABLE:
+            return self._create_search_schema()
+            
+        return {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "contacts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "phone": {"type": "string"},
+                            "email": {"type": "string"}
+                        },
+                        "required": ["name"]
+                    }
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "url": {"type": "string"}
+                        },
+                        "required": ["title", "url"]
+                    }
+                },
+                "price": {"type": "string"},
+                "location": {"type": "string"}
+            },
+            "required": ["steps", "contacts", "links"]
+        }
+    
+    def _extract_text_from_new_response(self, response) -> str:
+        """새로운 google.genai API 응답에서 텍스트 추출"""
+        if not NEW_API_AVAILABLE:
+            return ""
+            
+        try:
+            if hasattr(response, 'text') and response.text:
+                return response.text
+            
+            # candidates 구조에서 텍스트 추출 시도
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                return part.text
+            
+            logger.warning("Could not extract text from new API response")
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from new API response: {e}")
+            return ""
+    
+    def _log_grounding_metadata_new_api(self, response):
+        """새로운 API의 grounding metadata 로깅"""
+        if not NEW_API_AVAILABLE:
+            return
+            
+        try:
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'grounding_metadata'):
+                        metadata = candidate.grounding_metadata
+                        logger.info("✅ Response includes Google Search grounding metadata")
+                        
+                        if hasattr(metadata, 'web_search_queries'):
+                            logger.debug(f"Search queries: {metadata.web_search_queries}")
+                        
+                        if hasattr(metadata, 'grounding_chunks'):
+                            logger.debug(f"Found {len(metadata.grounding_chunks)} grounding chunks")
+                            
+                        if hasattr(metadata, 'grounding_supports'):
+                            logger.debug(f"Found {len(metadata.grounding_supports)} grounding supports")
+                            
+        except Exception as e:
+            logger.debug(f"Could not parse grounding metadata: {e}")
