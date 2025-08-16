@@ -19,7 +19,6 @@ class SearchResponse(BaseModel):
     contacts: List[ContactInfo]
     links: List[LinkInfo]
     price: Optional[str] = None
-    location: Optional[str] = None
 
 def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None) -> str:
     """Generate English search prompt for checklist items (responseSchema compatible)"""
@@ -45,8 +44,7 @@ Response: {{
   ],
   "contacts": [],
   "links": [{{"title": "Travel Insurance Comparison", "url": "https://example.com"}}],
-  "price": "From $3 per day",
-  "location": null
+  "price": "From $3 per day"
 }}
 
 Example 2:
@@ -61,8 +59,7 @@ Response: {{
   ],
   "contacts": [],
   "links": [],
-  "price": null,
-  "location": null
+  "price": null
 }}
 
 Example 3:
@@ -77,8 +74,7 @@ Response: {{
   ],
   "contacts": [],
   "links": [{{"title": "Resume Templates", "url": "https://example.com"}}],
-  "price": null,
-  "location": null
+  "price": null
 }}
 
 Action steps for "{checklist_item}":

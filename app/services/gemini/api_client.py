@@ -476,8 +476,7 @@ class GeminiApiClient:
                         "required": ["title", "url"]
                     }
                 },
-                "price": {"type": "string"},
-                "location": {"type": "string"}
+                "price": {"type": "string"}
             },
             "required": ["steps", "contacts", "links"]
         }
@@ -517,8 +516,7 @@ class GeminiApiClient:
                         "required": ["title", "url"]
                     }
                 },
-                "price": {"type": "string"},
-                "location": {"type": "string"}
+                "price": {"type": "string"}
             },
             "required": ["steps", "contacts", "links"]
         }

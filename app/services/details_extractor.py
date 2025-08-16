@@ -16,7 +16,6 @@ class ItemDetails:
     contacts: Optional[List[Dict[str, str]]] = None
     links: Optional[List[Dict[str, str]]] = None
     price: Optional[str] = None
-    location: Optional[str] = None
 
 class DetailsExtractor:
     """퍼플렉시티 검색 결과에서 details 정보 추출"""
@@ -44,13 +43,6 @@ class DetailsExtractor:
             r'(무료|공짜|Free)',                  # 무료
         ]
         
-        # 위치/주소 패턴
-        self.location_patterns = [
-            r'([가-힣]+시\s+[가-힣]+구\s+[가-힣]+동)',     # 서울시 강남구 역삼동
-            r'([가-힣]+시\s+[가-힣]+구)',                # 서울시 강남구
-            r'([가-힣]+역\s+\d+번\s*출구)',              # 강남역 3번 출구
-            r'([가-힣]+\s*센터|[가-힣]+\s*빌딩)',         # 강남센터, 롯데빌딩
-        ]
     
     def extract_details_from_search_results(
         self, 
@@ -96,8 +88,7 @@ class DetailsExtractor:
             steps=self._extract_steps(combined_content, item_text),
             contacts=self._extract_contacts(combined_content),
             links=self._extract_links(combined_content, all_sources),
-            price=self._extract_price(combined_content, item_text),
-            location=self._extract_location(combined_content, item_text)
+            price=self._extract_price(combined_content, item_text)
         )
         
         return details
@@ -108,7 +99,6 @@ class DetailsExtractor:
         merged_contacts = []
         merged_links = []
         price = None
-        location = None
         
         for data in structured_data:
             # Steps 병합 with smart splitting
@@ -130,10 +120,6 @@ class DetailsExtractor:
             # Price (첫 번째 유효한 값 사용)
             if not price and data.get("price") and data["price"] != "null":
                 price = data["price"]
-            
-            # Location (첫 번째 유효한 값 사용)
-            if not location and data.get("location") and data["location"] != "null":
-                location = data["location"]
         
         # 중복 제거 및 품질 필터링
         unique_steps = self._filter_and_dedupe_steps(merged_steps) if merged_steps else None
@@ -149,8 +135,7 @@ class DetailsExtractor:
             steps=unique_steps,
             contacts=unique_contacts,
             links=unique_links,
-            price=price,
-            location=location
+            price=price
         )
     
     def _extract_steps(self, content: str, item_text: str) -> Optional[List[str]]:
@@ -289,20 +274,6 @@ class DetailsExtractor:
         
         return None
     
-    def _extract_location(self, content: str, item_text: str) -> Optional[str]:
-        """위치/주소 정보 추출"""
-        locations = []
-        
-        for pattern in self.location_patterns:
-            matches = re.findall(pattern, content)
-            locations.extend(matches)
-        
-        if locations:
-            # 가장 구체적인 위치 정보 선택
-            return max(locations, key=len)
-        
-        return None
-    
     def to_dict(self, details: ItemDetails) -> Dict[str, Any]:
         """ItemDetails를 딕셔너리로 변환"""
         result = {}
@@ -315,8 +286,6 @@ class DetailsExtractor:
             result['links'] = details.links
         if details.price:
             result['price'] = details.price
-        if details.location:
-            result['location'] = details.location
         
         # 빈 결과라도 딕셔너리를 반환 (None 대신)
         return result

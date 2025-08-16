@@ -19,7 +19,6 @@ class SearchResponse(BaseModel):
     contacts: List[ContactInfo]
     links: List[LinkInfo]
     price: Optional[str] = None
-    location: Optional[str] = None
 
 def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None) -> str:
     """체크리스트 아이템 기반 웹 검색용 한국어 프롬프트 생성 (responseSchema 전용)"""
@@ -89,8 +88,7 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
   ],
   "contacts": ["카페 전화번호 확인 필요"],
   "links": [{{"title": "네이버 플레이스", "url": "https://place.naver.com"}}],
-  "price": "음료값 별도",
-  "location": "선택한 카페 위치"
+  "price": "음료값 별도"
 }}
 
 ### 예제 2: 보통 항목 (4단계) 
@@ -113,8 +111,7 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
     {{"title": "인프런", "url": "https://www.inflearn.com"}},
     {{"title": "유데미", "url": "https://www.udemy.com"}}
   ],
-  "price": "강의별 3만원~15만원",
-  "location": "온라인"
+  "price": "강의별 3만원~15만원"
 }}
 
 ### 예제 3: 복합 항목 (5단계)
@@ -138,8 +135,7 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
     {{"title": "네이버 블로그", "url": "https://blog.naver.com"}},
     {{"title": "티스토리", "url": "https://www.tistory.com"}}
   ],
-  "price": "무료",
-  "location": "온라인"
+  "price": "무료"
 }}
 
 ### 예제 4: 업무 관련 (4단계)
@@ -159,8 +155,7 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
   ],
   "contacts": [],
   "links": [{{"title": "구글 슬라이드", "url": "https://slides.google.com"}}],
-  "price": "무료 (소프트웨어 사용)",
-  "location": "사무실 또는 재택"
+  "price": "무료 (소프트웨어 사용)"
 }}
 
 ### 예제 5: 창작 활동 (5단계)
@@ -184,8 +179,7 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
     {{"title": "YouTube 크리에이터 아카데미", "url": "https://creatoracademy.youtube.com"}},
     {{"title": "Canva 썸네일 제작", "url": "https://www.canva.com"}}
   ],
-  "price": "무료 (기본 도구 사용 시)",
-  "location": "온라인"
+  "price": "무료 (기본 도구 사용 시)"
 }}
 
 ## 품질 기준
@@ -219,8 +213,7 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
   ],
   "contacts": ["필요한 연락처 정보"],
   "links": [{{"title": "참고 사이트명", "url": "실제 URL"}}],
-  "price": "예상 비용 정보",
-  "location": "실행 장소 정보"
+  "price": "예상 비용 정보"
 }}
 
 반드시 위 형식을 정확히 따라 JSON만 출력하세요. 추가 텍스트나 마크다운 코드 블록은 사용하지 마세요."""
