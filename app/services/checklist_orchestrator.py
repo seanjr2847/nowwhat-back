@@ -425,19 +425,33 @@ class ChecklistOrchestrator:
     
     
     async def _call_gemini_for_checklist(self, prompt: str) -> List[str]:
-        """Gemini API 호출하여 체크리스트 생성 (Structured Output 사용)"""
+        """Gemini API 구조화된 스트리밍 호출하여 체크리스트 생성 (20초 지연 해결)"""
         
         try:
-            # 체크리스트 전용 스키마를 사용한 API 호출
-            response = await gemini_service._call_gemini_api_for_checklist(prompt)
+            logger.info("🌊 Using structured streaming for checklist (fixes 20s delay)")
             
-            # JSON 응답 파싱 (스키마로 인해 이미 구조화된 JSON)
-            checklist_items = self._parse_structured_checklist_response(response)
+            # 체크리스트 전용 구조화된 스트리밍 호출
+            accumulated_content = ""
+            
+            async for chunk in gemini_service._call_gemini_api_for_checklist_stream(prompt):
+                accumulated_content += chunk
+                # 중간 로깅으로 진행 상황 확인 가능
+                if len(accumulated_content) % 100 == 0:  # 100자마다 로그 (더 자주)
+                    logger.debug(f"✨ Checklist streaming progress: {len(accumulated_content)} chars")
+            
+            logger.info(f"✅ Checklist streaming completed: {len(accumulated_content)} chars")
+            
+            # 구조화된 JSON 응답 파싱 (스키마 보장)
+            try:
+                checklist_items = self._parse_structured_checklist_response(accumulated_content)
+            except Exception as structured_error:
+                logger.warning(f"구조화된 파싱 실패, 일반 파싱 시도: {str(structured_error)}")
+                checklist_items = self._parse_checklist_response(accumulated_content)
             
             return checklist_items
             
         except Exception as e:
-            logger.error(f"Gemini structured checklist generation failed: {str(e)}")
+            logger.error(f"Gemini streaming checklist generation failed: {str(e)}")
             raise
     
     def _parse_structured_checklist_response(self, response: str) -> List[str]:
@@ -918,12 +932,16 @@ class ChecklistOrchestrator:
             # 답변 정보를 description에 포함 (임시 해결책)
             answer_summary = self._format_answers_for_description(request.answers)
             
+            # 깔끔한 title과 category 생성
+            clean_category = self._map_to_general_category(request.selectedIntent)
+            clean_title = request.goal if request.goal else clean_category
+            
             # Checklist 레코드 생성
             checklist = Checklist(
                 id=checklist_id,
-                title=f"{request.selectedIntent}: {request.goal}",
+                title=clean_title,
                 description=f"'{request.goal}' 목표 달성을 위한 맞춤형 체크리스트\n\n답변 요약:\n{answer_summary}",
-                category=request.selectedIntent,
+                category=clean_category,
                 progress=0.0,
                 is_public=True,
                 user_id=user.id
@@ -986,6 +1004,84 @@ class ChecklistOrchestrator:
         random_part = str(uuid.uuid4())[:8]
         
         return f"cl_{timestamp}_{random_part}"
+    
+    def _map_to_general_category(self, selected_intent: str) -> str:
+        """의도를 일반적인 카테고리로 매핑 (한국어/영어 지원)"""
+        intent_lower = selected_intent.lower()
+        
+        # 운동 관련 (Korean & English)
+        if any(keyword in intent_lower for keyword in [
+            "운동", "헬스", "피트니스", "다이어트", "체력", "근육",
+            "exercise", "fitness", "workout", "diet", "health", "muscle", "gym"
+        ]):
+            return "운동" if any(k in intent_lower for k in ["운동", "헬스", "피트니스"]) else "Exercise"
+        
+        # 공부/학습 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "공부", "학습", "교육", "강의", "수강", "배우", "시험", "자격증",
+            "study", "learn", "education", "course", "exam", "certificate", "skill"
+        ]):
+            return "공부" if any(k in intent_lower for k in ["공부", "학습", "교육"]) else "Study"
+        
+        # 취업/커리어 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "취업", "이직", "면접", "커리어", "직업", "구직",
+            "job", "career", "interview", "employment", "work", "resume"
+        ]):
+            return "취업" if any(k in intent_lower for k in ["취업", "이직", "면접"]) else "Career"
+        
+        # 창업/사업 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "창업", "사업", "비즈니스", "스타트업", "개업",
+            "business", "startup", "entrepreneur", "company"
+        ]):
+            return "창업" if any(k in intent_lower for k in ["창업", "사업"]) else "Business"
+        
+        # 취미/여가 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "취미", "여행", "독서", "영화", "음악", "게임", "요리",
+            "hobby", "travel", "reading", "movie", "music", "game", "cooking"
+        ]):
+            return "취미" if any(k in intent_lower for k in ["취미", "여행"]) else "Hobby"
+        
+        # 건강 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "건강", "의료", "병원", "치료", "검진", "금연", "금주",
+            "health", "medical", "doctor", "treatment", "checkup"
+        ]):
+            return "건강" if any(k in intent_lower for k in ["건강", "의료"]) else "Health"
+        
+        # 관계/소통 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "관계", "친구", "연애", "결혼", "소통", "네트워킹",
+            "relationship", "friend", "dating", "marriage", "communication", "networking"
+        ]):
+            return "관계" if any(k in intent_lower for k in ["관계", "친구"]) else "Relationship"
+        
+        # 자기계발 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "자기계발", "성장", "목표", "계획", "습관", "시간관리",
+            "self-improvement", "growth", "goal", "plan", "habit", "time management"
+        ]):
+            return "자기계발" if any(k in intent_lower for k in ["자기계발", "성장"]) else "Self-Improvement"
+        
+        # 생활 관리 관련 (Korean & English)
+        elif any(keyword in intent_lower for keyword in [
+            "정리", "청소", "집", "생활", "관리", "가계부", "절약",
+            "organize", "clean", "home", "life", "management", "budget", "saving"
+        ]):
+            return "생활" if any(k in intent_lower for k in ["정리", "청소", "생활"]) else "Lifestyle"
+        
+        # 기타 - 첫 번째 문장에서 키워드 추출
+        else:
+            first_sentence = selected_intent.split('.')[0].strip()
+            # 간단한 키워드 추출 (10자 이내)
+            if len(first_sentence) <= 10:
+                return first_sentence
+            else:
+                # 너무 길면 첫 단어만 추출
+                words = first_sentence.split()
+                return words[0] if words else ("기타" if any(ord(c) > 127 for c in selected_intent) else "Other")
     
     def _format_answers_for_description(self, answers: List[AnswerItemSchema]) -> str:
         """답변들을 설명 텍스트로 포맷팅"""

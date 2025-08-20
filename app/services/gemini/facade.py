@@ -235,6 +235,31 @@ class GeminiService:
         """
         logger.debug("Facade: Delegating checklist generation to ApiClient with schema")
         return await self.api_client.call_api_for_checklist(prompt)
+    
+    async def _call_gemini_api_for_checklist_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """체크리스트 생성 전용 Gemini API 스트리밍 호출 (Structured Output)
+        
+        비즈니스 로직:
+        - 체크리스트 전용 JSON 스키마를 사용한 실시간 스트리밍 응답
+        - 마크다운 블록 없이 깨끗한 JSON 스트리밍
+        - 20초 대기 없이 실시간 체크리스트 생성
+        - checklist_orchestrator.py에서 사용하기 위한 스트리밍 메서드
+        """
+        logger.debug("Facade: Delegating streaming checklist generation to ApiClient with schema")
+        async for chunk in self.api_client.call_api_for_checklist_stream(prompt):
+            yield chunk
+    
+    async def call_api_stream(self, prompt: str):
+        """스트리밍 API 호출 (성능 개선)
+        
+        비즈니스 로직:
+        - 실시간 스트리밍으로 응답 받아서 첫 청크부터 즉시 전달
+        - 20초 지연 문제 해결을 위한 핵심 메서드
+        - checklist_orchestrator.py에서 사용하기 위한 전용 메서드
+        """
+        logger.debug("Facade: Delegating streaming API call to ApiClient")
+        async for chunk in self.api_client.call_api_stream(prompt):
+            yield chunk
 
 
 # 기존 코드와의 완전한 호환성을 위한 인스턴스 생성

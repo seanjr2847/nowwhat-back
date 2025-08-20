@@ -260,6 +260,62 @@ class GeminiApiClient:
             logger.error(f"Gemini checklist API call error: {str(e)}")
             raise GeminiAPIError(f"Checklist generation failed: {str(e)}")
     
+    async def call_api_for_checklist_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """체크리스트 생성을 위한 스트리밍 API 호출 (Structured Output)
+        
+        비즈니스 로직:
+        - 체크리스트 전용 JSON 스키마를 사용한 실시간 스트리밍 응답
+        - 마크다운 블록 없이 깨끗한 JSON 스트리밍
+        - 체크리스트 항목 개수 및 구조 보장 (3-10개)
+        - 20초 대기 없이 실시간 응답 제공
+        """
+        try:
+            logger.debug(f"🌊 Starting streaming checklist generation (prompt length: {len(prompt)} chars)")
+            
+            # 체크리스트 스키마로 스트리밍 호출
+            response_stream = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=GeminiConfig.MAX_OUTPUT_TOKENS,
+                    temperature=GeminiConfig.TEMPERATURE,
+                    top_p=GeminiConfig.TOP_P,
+                    top_k=GeminiConfig.TOP_K,
+                    response_mime_type="application/json",
+                    response_schema=self._create_checklist_schema()
+                ),
+                stream=True
+            )
+            
+            chunks_received = 0
+            total_chars = 0
+            
+            for chunk in response_stream:
+                # 비동기 처리를 위해 yield 포인트 제공
+                await asyncio.sleep(0)
+                
+                chunk_text = self._extract_chunk_text(chunk)
+                
+                if chunk_text:
+                    chunks_received += 1
+                    total_chars += len(chunk_text)
+                    
+                    # 주기적으로 진행 상황 로깅
+                    if chunks_received % 5 == 0:
+                        logger.debug(f"📊 Checklist streaming: {chunks_received} chunks, {total_chars} chars")
+                    
+                    yield chunk_text
+            
+            logger.info(f"✅ Checklist stream completed: {chunks_received} chunks, {total_chars} chars")
+            
+        except (BrokenPipeError, ConnectionResetError, OSError) as conn_error:
+            logger.warning(f"🔌 Client disconnected during checklist streaming: {str(conn_error)}")
+            # 클라이언트 연결 끊김은 정상적인 상황으로 처리
+            return
+            
+        except Exception as e:
+            logger.error(f"🚨 Streaming checklist API error: {str(e)}")
+            raise GeminiAPIError(f"Gemini checklist streaming failed: {str(e)}")
+
     async def call_api_stream(self, prompt: str) -> AsyncGenerator[str, None]:
         """Gemini API 실시간 스트리밍 호출
         
