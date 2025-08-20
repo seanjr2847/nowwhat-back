@@ -67,6 +67,9 @@ class DetailsExtractor:
                     data = json.loads(result.content)
                     structured_data.append(data)
                     logger.info(f"Successfully used structured JSON data for item: {item_text[:30]}...")
+                    logger.debug(f"JSON data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                    if isinstance(data, dict) and 'steps' in data:
+                        logger.debug(f"Steps count: {len(data['steps']) if data['steps'] else 0}")
                 except json.JSONDecodeError:
                     # JSON이 아니면 기존 방식으로 폴백
                     fallback_content.append(result.content)
@@ -137,9 +140,16 @@ class DetailsExtractor:
         unique_links = merged_links[:3] if merged_links else None
         
         logger.info(f"Merged steps: {len(unique_steps) if unique_steps else 0} final steps")
+        logger.debug(f"Merged contacts: {len(unique_contacts) if unique_contacts else 0}")
+        logger.debug(f"Merged links: {len(unique_links) if unique_links else 0}")
+        logger.debug(f"Price: {price}")
         if unique_steps:
             for i, step in enumerate(unique_steps):
-                logger.debug(f"  Step {i+1}: {step[:60]}...")
+                if isinstance(step, dict):
+                    step_preview = step.get('description', step.get('title', str(step)))[:60]
+                    logger.debug(f"  Step {i+1}: {step_preview}...")
+                else:
+                    logger.debug(f"  Step {i+1}: {str(step)[:60]}...")
         
         return ItemDetails(
             steps=unique_steps,
@@ -303,13 +313,18 @@ class DetailsExtractor:
         
         if details.steps:
             result['steps'] = details.steps
+            logger.debug(f"to_dict: Added {len(details.steps)} steps")
         if details.contacts:
             result['contacts'] = details.contacts
+            logger.debug(f"to_dict: Added {len(details.contacts)} contacts")
         if details.links:
             result['links'] = details.links
+            logger.debug(f"to_dict: Added {len(details.links)} links")
         if details.price:
             result['price'] = details.price
+            logger.debug(f"to_dict: Added price: {details.price}")
         
+        logger.debug(f"to_dict result keys: {list(result.keys())}")
         # 빈 결과라도 딕셔너리를 반환 (None 대신)
         return result
     
