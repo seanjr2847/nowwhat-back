@@ -293,10 +293,15 @@ async def update_checklist_item(
                 detail="체크리스트 아이템을 찾을 수 없습니다."
             )
         
-        # 아이템 업데이트
+        # 아이템 업데이트 (필드명 매핑 포함)
         update_data = item_update.dict(exclude_unset=True)
         for field, value in update_data.items():
-            setattr(item, field, value)
+            # camelCase를 snake_case로 변환
+            if field == "isCompleted":
+                setattr(item, "is_completed", value)
+                logger.info(f"Updated item {item_id} is_completed to {value}")
+            else:
+                setattr(item, field, value)
         
         # 완료 시간 설정
         if item_update.isCompleted is not None:
