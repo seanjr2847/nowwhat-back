@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ItemDetails:
     """체크리스트 아이템의 상세 정보"""
-    steps: Optional[List[str]] = None  # 실행 가능한 단계별 가이드
+    steps: Optional[List[Dict[str, Any]]] = None  # 구조화된 단계별 가이드
     contacts: Optional[List[Dict[str, str]]] = None
     links: Optional[List[Dict[str, str]]] = None
     price: Optional[str] = None
@@ -101,13 +101,23 @@ class DetailsExtractor:
         price = None
         
         for data in structured_data:
-            # Steps 병합 with smart splitting
+            # Steps 병합 with new structure support
             if data.get("steps") and isinstance(data["steps"], list):
                 for step in data["steps"]:
-                    if isinstance(step, str):
-                        # 긴 step을 여러 개로 분리 (Gemini가 하나로 뭉쳐서 보낸 경우 처리)
-                        processed_steps = self._split_long_step(step)
-                        merged_steps.extend(processed_steps)
+                    if isinstance(step, dict):
+                        # 새로운 구조화된 형태 (StepInfo)
+                        if all(key in step for key in ["order", "title", "description"]):
+                            merged_steps.append(step)
+                    elif isinstance(step, str):
+                        # 기존 문자열 형태 - 구조화된 형태로 변환
+                        step_obj = {
+                            "order": len(merged_steps) + 1,
+                            "title": f"Step {len(merged_steps) + 1}",
+                            "description": step,
+                            "estimatedTime": None,
+                            "difficulty": None
+                        }
+                        merged_steps.append(step_obj)
             
             # Contacts 병합
             if data.get("contacts") and isinstance(data["contacts"], list):
@@ -138,8 +148,8 @@ class DetailsExtractor:
             price=price
         )
     
-    def _extract_steps(self, content: str, item_text: str) -> Optional[List[str]]:
-        """실행 가능한 단계 추출"""
+    def _extract_steps(self, content: str, item_text: str) -> Optional[List[Dict[str, Any]]]:
+        """실행 가능한 단계 추출 (구조화된 형태로 반환)"""
         step_patterns = [
             r'팁[:：]\s*([^.!?]+[.!?])',
             r'추천[:：]\s*([^.!?]+[.!?])',
@@ -166,9 +176,22 @@ class DetailsExtractor:
                 if 20 <= len(sentence) <= 120:
                     steps.append(sentence.strip())
         
-        # 중복 제거 및 정렬
+        # 중복 제거
         unique_steps = list(dict.fromkeys(steps))
-        return unique_steps[:5] if unique_steps else None
+        
+        # 구조화된 형태로 변환
+        structured_steps = []
+        for i, step in enumerate(unique_steps[:5]):
+            structured_step = {
+                "order": i + 1,
+                "title": f"Step {i + 1}",
+                "description": step,
+                "estimatedTime": None,
+                "difficulty": None
+            }
+            structured_steps.append(structured_step)
+        
+        return structured_steps if structured_steps else None
     
     def _extract_contacts(self, content: str) -> Optional[List[Dict[str, str]]]:
         """연락처 정보 추출"""
@@ -397,8 +420,8 @@ class DetailsExtractor:
         
         return text.strip()
     
-    def _filter_and_dedupe_steps(self, steps: List[str]) -> List[str]:
-        """단계 필터링 및 중복 제거"""
+    def _filter_and_dedupe_steps(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """단계 필터링 및 중복 제거 (구조화된 형태)"""
         if not steps:
             return []
         
@@ -406,19 +429,25 @@ class DetailsExtractor:
         seen = set()
         
         for step in steps:
-            step = step.strip()
+            if not isinstance(step, dict):
+                continue
+                
+            description = step.get("description", "").strip()
             
             # 너무 짧거나 긴 단계 제거
-            if len(step) < 10 or len(step) > 300:
+            if len(description) < 10 or len(description) > 300:
                 continue
             
-            # 중복 확인 (소문자 변환하여 비교)
-            step_lower = step.lower()
-            if step_lower in seen:
+            # 중복 확인 (description을 소문자 변환하여 비교)
+            description_lower = description.lower()
+            if description_lower in seen:
                 continue
             
-            seen.add(step_lower)
-            filtered_steps.append(step)
+            seen.add(description_lower)
+            # order를 다시 정렬
+            step_copy = step.copy()
+            step_copy["order"] = len(filtered_steps) + 1
+            filtered_steps.append(step_copy)
             
             # 최대 5개로 제한
             if len(filtered_steps) >= 5:

@@ -14,8 +14,15 @@ class LinkInfo(BaseModel):
     title: str
     url: str
 
+class StepInfo(BaseModel):
+    order: int
+    title: str
+    description: str
+    estimatedTime: Optional[str] = None
+    difficulty: Optional[str] = None
+
 class SearchResponse(BaseModel):
-    steps: List[str]  # Changed from tips to steps - actionable guide
+    steps: List[StepInfo]  # Structured step-by-step guide
     contacts: List[ContactInfo]
     links: List[LinkInfo]
     price: Optional[str] = None
@@ -28,19 +35,49 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 
 Instructions:
 1. Understand what "{checklist_item}" is
-2. Write 3-5 sequential action steps needed to complete it
-3. Each step should start with "Step 1:", "Step 2:", etc.
+2. Create 3-5 sequential action steps needed to complete it
+3. Each step should have: order, title, description, estimatedTime, difficulty
 4. Make each step specific and actionable
 
 Example 1:
 Item: "Get travel insurance"
 Response: {{
   "steps": [
-    "Step 1: Check your travel dates and destination to determine coverage needs (medical, luggage, etc.)",
-    "Step 2: Visit 2-3 insurance company websites to compare travel insurance products",
-    "Step 3: Compare premiums and coverage limits to select the best product",
-    "Step 4: Complete the online application form and make payment",
-    "Step 5: Download the insurance certificate and save it to your phone for the trip"
+    {{
+      "order": 1,
+      "title": "Check travel details",
+      "description": "Check your travel dates and destination to determine coverage needs (medical, luggage, etc.)",
+      "estimatedTime": "15 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 2,
+      "title": "Compare insurance options",
+      "description": "Visit 2-3 insurance company websites to compare travel insurance products",
+      "estimatedTime": "30 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 3,
+      "title": "Select best option",
+      "description": "Compare premiums and coverage limits to select the best product",
+      "estimatedTime": "20 minutes",
+      "difficulty": "medium"
+    }},
+    {{
+      "order": 4,
+      "title": "Apply and pay",
+      "description": "Complete the online application form and make payment",
+      "estimatedTime": "15 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 5,
+      "title": "Download certificate",
+      "description": "Download the insurance certificate and save it to your phone for the trip",
+      "estimatedTime": "5 minutes",
+      "difficulty": "easy"
+    }}
   ],
   "contacts": [],
   "links": [{{"title": "Travel Insurance Comparison", "url": "https://example.com"}}],
@@ -51,11 +88,41 @@ Example 2:
 Item: "Create workout routine"
 Response: {{
   "steps": [
-    "Step 1: Assess your current fitness level and available workout time slots",
-    "Step 2: Schedule 3-4 workout days per week and add them as recurring calendar events",
-    "Step 3: Plan specific exercise types for each day (Monday-upper body, Wednesday-lower body, Friday-full body)",
-    "Step 4: Start with light intensity and increase by 10% each week",
-    "Step 5: Download a workout tracking app and record your daily exercise and progress"
+    {{
+      "order": 1,
+      "title": "Assess fitness level",
+      "description": "Assess your current fitness level and available workout time slots",
+      "estimatedTime": "30 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 2,
+      "title": "Schedule workout days",
+      "description": "Schedule 3-4 workout days per week and add them as recurring calendar events",
+      "estimatedTime": "15 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 3,
+      "title": "Plan exercise types",
+      "description": "Plan specific exercise types for each day (Monday-upper body, Wednesday-lower body, Friday-full body)",
+      "estimatedTime": "45 minutes",
+      "difficulty": "medium"
+    }},
+    {{
+      "order": 4,
+      "title": "Start with light intensity",
+      "description": "Start with light intensity and increase by 10% each week",
+      "estimatedTime": "ongoing",
+      "difficulty": "medium"
+    }},
+    {{
+      "order": 5,
+      "title": "Track progress",
+      "description": "Download a workout tracking app and record your daily exercise and progress",
+      "estimatedTime": "10 minutes",
+      "difficulty": "easy"
+    }}
   ],
   "contacts": [],
   "links": [],
@@ -66,11 +133,41 @@ Example 3:
 Item: "Write a resume"
 Response: {{
   "steps": [
-    "Step 1: Read the job posting to understand requirements and preferred qualifications",
-    "Step 2: List your work experience and projects from the past 3 years in chronological order",
-    "Step 3: Add specific achievements and metrics for each role (sales increase %, projects completed, etc.)",
-    "Step 4: Choose a resume template and input personal info, experience, education, and certifications",
-    "Step 5: Save the completed resume as PDF with filename 'YourName_Position_Resume'"
+    {{
+      "order": 1,
+      "title": "Analyze job requirements",
+      "description": "Read the job posting to understand requirements and preferred qualifications",
+      "estimatedTime": "20 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 2,
+      "title": "List experience",
+      "description": "List your work experience and projects from the past 3 years in chronological order",
+      "estimatedTime": "30 minutes",
+      "difficulty": "easy"
+    }},
+    {{
+      "order": 3,
+      "title": "Add achievements",
+      "description": "Add specific achievements and metrics for each role (sales increase %, projects completed, etc.)",
+      "estimatedTime": "45 minutes",
+      "difficulty": "medium"
+    }},
+    {{
+      "order": 4,
+      "title": "Create resume",
+      "description": "Choose a resume template and input personal info, experience, education, and certifications",
+      "estimatedTime": "1 hour",
+      "difficulty": "medium"
+    }},
+    {{
+      "order": 5,
+      "title": "Save as PDF",
+      "description": "Save the completed resume as PDF with filename 'YourName_Position_Resume'",
+      "estimatedTime": "5 minutes",
+      "difficulty": "easy"
+    }}
   ],
   "contacts": [],
   "links": [{{"title": "Resume Templates", "url": "https://example.com"}}],
@@ -78,14 +175,16 @@ Response: {{
 }}
 
 Action steps for "{checklist_item}":
-- Each step starts with "Step N:"
-- Use specific action verbs (visit, create, download, etc.)
+- Each step should be a structured object with order, title, description
+- Use specific action verbs in descriptions (visit, create, download, etc.)
 - Sequential steps that can be followed to completion
+- Include estimatedTime (e.g., "15 minutes", "1 hour", "ongoing")
+- Include difficulty level (easy, medium, hard)
 
 Context: {user_country or 'Korea'}, {current_year}
 
 Critical Rules:
 - Include only actionable steps in the steps array
-- Each step must start with "Step N:" as a complete sentence
-- NEVER use JSON structure or special characters
+- Each step must be a complete structured object
+- NEVER use JSON structure or special characters in output
 - NEVER use markdown code blocks"""

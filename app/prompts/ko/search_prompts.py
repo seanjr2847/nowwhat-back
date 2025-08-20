@@ -14,8 +14,15 @@ class LinkInfo(BaseModel):
     title: str
     url: str
 
+class StepInfo(BaseModel):
+    order: int
+    title: str
+    description: str
+    estimatedTime: Optional[str] = None
+    difficulty: Optional[str] = None
+
 class SearchResponse(BaseModel):
-    steps: List[str]  # tips를 steps로 변경 - 실행 가능한 단계별 가이드
+    steps: List[StepInfo]  # 구조화된 단계별 가이드
     contacts: List[ContactInfo]
     links: List[LinkInfo]
     price: Optional[str] = None
@@ -59,10 +66,11 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 - **복합 항목** (준비+실행+검증): 5단계
 
 **각 단계 작성 원칙**:
-- "N단계:"로 시작하는 완전한 문장
-- 구체적인 행동 동사 사용 (방문하세요, 작성하세요, 다운로드하세요 등)
-- 즉시 실행 가능한 구체적 행동
-- 명확한 완료 기준 포함
+- order: 순서 번호 (1, 2, 3...)
+- title: 간단한 단계 제목 (15자 이내)
+- description: 구체적인 실행 방법 설명
+- estimatedTime: 예상 소요시간 ("10분", "1시간", "지속적" 등)
+- difficulty: 난이도 ("쉬움", "보통", "어려움")
 
 ### 3단계: 예외 상황 처리
 - **항목이 모호한 경우**: 가장 일반적이고 합리적인 해석 적용
@@ -82,9 +90,27 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 **출력**:
 {{
   "steps": [
-    "1단계: 원하는 지역과 분위기를 고려하여 예약 가능한 카페를 2-3곳 검색하세요",
-    "2단계: 선택한 카페에 전화하여 원하는 날짜와 시간에 예약이 가능한지 문의하세요",
-    "3단계: 예약을 확정하고 예약자 이름과 연락처를 알려드린 후 예약 확인 문자나 이메일을 받으세요"
+    {{
+      "order": 1,
+      "title": "카페 검색하기",
+      "description": "원하는 지역과 분위기를 고려하여 예약 가능한 카페를 2-3곳 검색하세요",
+      "estimatedTime": "10분",
+      "difficulty": "쉬움"
+    }},
+    {{
+      "order": 2,
+      "title": "예약 문의하기",
+      "description": "선택한 카페에 전화하여 원하는 날짜와 시간에 예약이 가능한지 문의하세요",
+      "estimatedTime": "5분",
+      "difficulty": "쉬움"
+    }},
+    {{
+      "order": 3,
+      "title": "예약 확정하기",
+      "description": "예약을 확정하고 예약자 이름과 연락처를 알려드린 후 예약 확인 문자나 이메일을 받으세요",
+      "estimatedTime": "5분",
+      "difficulty": "쉬움"
+    }}
   ],
   "contacts": ["카페 전화번호 확인 필요"],
   "links": [{{"title": "네이버 플레이스", "url": "https://place.naver.com"}}],
@@ -101,10 +127,34 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 **출력**:
 {{
   "steps": [
-    "1단계: 학습하고 싶은 주제를 명확히 정하고 인프런, 유데미, 코세라 등에서 관련 강의를 검색하세요",
-    "2단계: 강의 커리큘럼과 수강평을 비교하여 자신의 수준에 맞는 강의를 선택하세요",
-    "3단계: 결제를 완료하고 강의 수강 계획(주 몇 시간, 어떤 요일)을 세워 캘린더에 등록하세요",
-    "4단계: 매주 계획에 따라 강의를 시청하고 실습을 진행하며 완주까지 꾸준히 학습하세요"
+    {{
+      "order": 1,
+      "title": "학습 주제 정하기",
+      "description": "학습하고 싶은 주제를 명확히 정하고 인프런, 유데미, 코세라 등에서 관련 강의를 검색하세요",
+      "estimatedTime": "30분",
+      "difficulty": "쉬움"
+    }},
+    {{
+      "order": 2,
+      "title": "강의 선택하기",
+      "description": "강의 커리큘럼과 수강평을 비교하여 자신의 수준에 맞는 강의를 선택하세요",
+      "estimatedTime": "1시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 3,
+      "title": "결제 및 계획 세우기",
+      "description": "결제를 완료하고 강의 수강 계획(주 몇 시간, 어떤 요일)을 세워 캘린더에 등록하세요",
+      "estimatedTime": "20분",
+      "difficulty": "쉬움"
+    }},
+    {{
+      "order": 4,
+      "title": "꾸준히 학습하기",
+      "description": "매주 계획에 따라 강의를 시청하고 실습을 진행하며 완주까지 꾸준히 학습하세요",
+      "estimatedTime": "지속적",
+      "difficulty": "어려움"
+    }}
   ],
   "contacts": [],
   "links": [
@@ -124,11 +174,41 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 **출력**:
 {{
   "steps": [
-    "1단계: 블로그 주제와 목적을 정하고 네이버, 티스토리, 브런치 중 적합한 플랫폼을 선택하세요",
-    "2단계: 선택한 플랫폼에서 계정을 생성하고 블로그 이름과 주소를 설정하세요",
-    "3단계: 블로그 디자인을 꾸미고 카테고리를 만들며 프로필과 소개글을 작성하세요",
-    "4단계: 첫 번째 포스팅할 주제를 정하고 제목, 본문, 이미지를 포함한 글을 작성하세요",
-    "5단계: 작성한 글을 검토한 후 발행하고 SNS나 지인들에게 블로그 개설 소식을 알리세요"
+    {{
+      "order": 1,
+      "title": "주제와 플랫폼 선택",
+      "description": "블로그 주제와 목적을 정하고 네이버, 티스토리, 브런치 중 적합한 플랫폼을 선택하세요",
+      "estimatedTime": "1시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 2,
+      "title": "계정 생성 및 기본 설정",
+      "description": "선택한 플랫폼에서 계정을 생성하고 블로그 이름과 주소를 설정하세요",
+      "estimatedTime": "30분",
+      "difficulty": "쉬움"
+    }},
+    {{
+      "order": 3,
+      "title": "블로그 꾸미기",
+      "description": "블로그 디자인을 꾸미고 카테고리를 만들며 프로필과 소개글을 작성하세요",
+      "estimatedTime": "2시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 4,
+      "title": "첫 포스팅 작성",
+      "description": "첫 번째 포스팅할 주제를 정하고 제목, 본문, 이미지를 포함한 글을 작성하세요",
+      "estimatedTime": "1-2시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 5,
+      "title": "발행 및 홍보",
+      "description": "작성한 글을 검토한 후 발행하고 SNS나 지인들에게 블로그 개설 소식을 알리세요",
+      "estimatedTime": "30분",
+      "difficulty": "쉬움"
+    }}
   ],
   "contacts": [],
   "links": [
@@ -148,10 +228,34 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 **출력**:
 {{
   "steps": [
-    "1단계: 발표 목적과 청중을 파악하여 전달하고자 하는 핵심 메시지 3가지를 정리하세요",
-    "2단계: 각 메시지를 뒷받침할 데이터, 이미지, 사례를 수집하고 슬라이드 구성안을 작성하세요", 
-    "3단계: 파워포인트나 구글 슬라이드를 사용하여 제목, 목차, 본문, 결론 순으로 슬라이드를 제작하세요",
-    "4단계: 완성된 자료를 처음부터 끝까지 검토하고 발표 연습을 2-3회 진행하세요"
+    {{
+      "order": 1,
+      "title": "메시지 정리하기",
+      "description": "발표 목적과 청중을 파악하여 전달하고자 하는 핵심 메시지 3가지를 정리하세요",
+      "estimatedTime": "1시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 2,
+      "title": "자료 수집 및 구성",
+      "description": "각 메시지를 뒷받침할 데이터, 이미지, 사례를 수집하고 슬라이드 구성안을 작성하세요",
+      "estimatedTime": "2-3시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 3,
+      "title": "슬라이드 제작",
+      "description": "파워포인트나 구글 슬라이드를 사용하여 제목, 목차, 본문, 결론 순으로 슬라이드를 제작하세요",
+      "estimatedTime": "3-4시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 4,
+      "title": "검토 및 연습",
+      "description": "완성된 자료를 처음부터 끝까지 검토하고 발표 연습을 2-3회 진행하세요",
+      "estimatedTime": "1-2시간",
+      "difficulty": "보통"
+    }}
   ],
   "contacts": [],
   "links": [{{"title": "구글 슬라이드", "url": "https://slides.google.com"}}],
@@ -168,11 +272,41 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 **출력**:
 {{
   "steps": [
-    "1단계: 채널 주제와 타겟 시청자를 정하고 경쟁 채널 3-5개를 분석하여 차별화 포인트를 찾으세요",
-    "2단계: 구글 계정으로 YouTube에 로그인하여 채널을 생성하고 채널명을 설정하세요",
-    "3단계: 채널 아트, 프로필 사진을 제작하고 채널 소개를 작성하여 채널을 꾸미세요",
-    "4단계: 첫 번째 영상의 주제를 정하고 스마트폰이나 카메라로 촬영한 후 기본 편집을 진행하세요",
-    "5단계: 영상 제목과 설명을 작성하고 썸네일을 만든 후 YouTube에 업로드하여 첫 영상을 발행하세요"
+    {{
+      "order": 1,
+      "title": "채널 기획하기",
+      "description": "채널 주제와 타겟 시청자를 정하고 경쟁 채널 3-5개를 분석하여 차별화 포인트를 찾으세요",
+      "estimatedTime": "2-3시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 2,
+      "title": "채널 생성하기",
+      "description": "구글 계정으로 YouTube에 로그인하여 채널을 생성하고 채널명을 설정하세요",
+      "estimatedTime": "30분",
+      "difficulty": "쉬움"
+    }},
+    {{
+      "order": 3,
+      "title": "채널 꾸미기",
+      "description": "채널 아트, 프로필 사진을 제작하고 채널 소개를 작성하여 채널을 꾸미세요",
+      "estimatedTime": "2-3시간",
+      "difficulty": "보통"
+    }},
+    {{
+      "order": 4,
+      "title": "첫 영상 제작",
+      "description": "첫 번째 영상의 주제를 정하고 스마트폰이나 카메라로 촬영한 후 기본 편집을 진행하세요",
+      "estimatedTime": "4-6시간",
+      "difficulty": "어려움"
+    }},
+    {{
+      "order": 5,
+      "title": "영상 업로드",
+      "description": "영상 제목과 설명을 작성하고 썸네일을 만든 후 YouTube에 업로드하여 첫 영상을 발행하세요",
+      "estimatedTime": "1시간",
+      "difficulty": "쉬움"
+    }}
   ],
   "contacts": [],
   "links": [
@@ -207,9 +341,20 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 2. **그 다음 JSON 형식으로 최종 결과 출력**:
 {{
   "steps": [
-    "1단계: 구체적인 첫 번째 행동",
-    "2단계: 구체적인 두 번째 행동",
-    "3단계: 구체적인 세 번째 행동"
+    {{
+      "order": 1,
+      "title": "간단한 제목",
+      "description": "구체적인 실행 방법 설명",
+      "estimatedTime": "예상 소요시간",
+      "difficulty": "쉬움|보통|어려움"
+    }},
+    {{
+      "order": 2,
+      "title": "다음 단계 제목",
+      "description": "구체적인 실행 방법 설명",
+      "estimatedTime": "예상 소요시간",
+      "difficulty": "쉬움|보통|어려움"
+    }}
   ],
   "contacts": ["필요한 연락처 정보"],
   "links": [{{"title": "참고 사이트명", "url": "실제 URL"}}],

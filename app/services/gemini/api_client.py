@@ -444,14 +444,25 @@ class GeminiApiClient:
         비즈니스 로직:
         - Structured Output을 위한 Gemini API 호환 JSON 스키마
         - 간단하고 명확한 구조로 안정성 보장
-        - steps, contacts, links, price, location 등 검색 결과 필드 정의
+        - steps, contacts, links, price 등 검색 결과 필드 정의
+        - steps는 구조화된 객체 배열 형태로 변경
         """
         return {
             "type": "object",
             "properties": {
                 "steps": {
                     "type": "array",
-                    "items": {"type": "string"}
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "order": {"type": "integer"},
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "estimatedTime": {"type": "string"},
+                            "difficulty": {"type": "string"}
+                        },
+                        "required": ["order", "title", "description"]
+                    }
                 },
                 "contacts": {
                     "type": "array",
@@ -491,7 +502,17 @@ class GeminiApiClient:
             "properties": {
                 "steps": {
                     "type": "array",
-                    "items": {"type": "string"}
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "order": {"type": "integer"},
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "estimatedTime": {"type": "string"},
+                            "difficulty": {"type": "string"}
+                        },
+                        "required": ["order", "title", "description"]
+                    }
                 },
                 "contacts": {
                     "type": "array",
