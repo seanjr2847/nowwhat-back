@@ -204,44 +204,9 @@ class DetailsExtractor:
         return structured_steps if structured_steps else None
     
     def _extract_contacts(self, content: str) -> Optional[List[Dict[str, str]]]:
-        """연락처 정보 추출"""
-        contacts = []
-        
-        # 전화번호 추출
-        phones = []
-        for pattern in self.phone_patterns:
-            phones.extend(re.findall(pattern, content))
-        
-        # 이메일 추출
-        emails = re.findall(self.email_pattern, content)
-        
-        # 연락처와 이름 매칭 시도
-        lines = content.split('\n')
-        for line in lines:
-            phone_match = None
-            email_match = None
-            
-            for pattern in self.phone_patterns:
-                phone_match = re.search(pattern, line)
-                if phone_match:
-                    break
-            
-            email_match = re.search(self.email_pattern, line)
-            
-            if phone_match or email_match:
-                # 같은 줄에서 이름 찾기
-                name_candidates = re.findall(r'([가-힣]{2,4})\s*(?:씨|님|센터|병원|학원)', line)
-                name = name_candidates[0] if name_candidates else "담당자"
-                
-                contact = {"name": name}
-                if phone_match:
-                    contact["phone"] = phone_match.group(1)
-                if email_match:
-                    contact["email"] = email_match.group(1)
-                
-                contacts.append(contact)
-        
-        return contacts[:2] if contacts else None
+        """연락처 정보 추출 (임시 비활성화)"""
+        # 임시로 contact 결과를 비활성화
+        return None
     
     def _extract_links(self, content: str, sources: List[str]) -> Optional[List[Dict[str, str]]]:
         """유용한 링크 추출"""

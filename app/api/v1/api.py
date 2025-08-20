@@ -1,6 +1,6 @@
 # api/v1/api.py
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, users, intents, questions, checklists, feedback
+from app.api.v1.endpoints import auth, users, intents, questions, checklists, feedback, credits
 
 api_router = APIRouter()
 
@@ -11,3 +11,4 @@ api_router.include_router(intents.router, prefix="/intents", tags=["intents"])
 api_router.include_router(questions.router, prefix="/questions", tags=["questions"])
 api_router.include_router(checklists.router, prefix="/checklists", tags=["checklists"])
 api_router.include_router(feedback.router, prefix="/feedback", tags=["feedback"])
+api_router.include_router(credits.router, prefix="/credits", tags=["credits"])

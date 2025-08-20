@@ -6,6 +6,7 @@ from app.schemas.nowwhat import (
 )
 from app.core.auth import get_current_user
 from app.core.database import get_db
+from app.core.credits import require_credits
 from app.services.gemini_service import gemini_service
 # Removed geo utils for performance optimization
 from app.crud.session import (
@@ -205,6 +206,7 @@ async def test_dependencies(request: Request, db: Session = Depends(get_db)):
     }
 
 @router.post("/analyze", response_model=IntentAnalyzeApiResponse)
+@require_credits(1)  # 의도 분석(프롬프트)당 1크레딧 차감
 async def analyze_intents(
     request: Request,
     intent_request: IntentAnalyzeRequest,

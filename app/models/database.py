@@ -15,6 +15,7 @@ class User(Base):
     name = Column(String, nullable=False)
     profile_image = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True)
+    credits = Column(Integer, default=10, nullable=False)  # 신규 가입시 10크레딧 지급
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     last_login_at = Column(DateTime, nullable=True)
@@ -159,5 +160,18 @@ class IntentSession(Base):
     generated_intents = Column(JSON, nullable=True)  # 생성된 의도 옵션들
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class CreditLog(Base):
+    __tablename__ = "credit_logs"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    action = Column(String, nullable=False)  # 'question_generate', 'checklist_create'
+    credits_before = Column(Integer, nullable=False)
+    credits_after = Column(Integer, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # 관계
+    user = relationship("User")
 
  
