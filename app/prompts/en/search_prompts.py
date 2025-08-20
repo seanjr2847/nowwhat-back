@@ -31,13 +31,20 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
     """Generate English search prompt for checklist items (responseSchema compatible)"""
     current_year = datetime.now().year
     
-    return f"""Provide specific action steps to complete "{checklist_item}".
+    return f"""Provide specific action steps to complete "{checklist_item}". Use Google web search actively to find real, current information.
+
+## Important: Use Real Search Information
+Actively utilize Google web search to provide actual information such as:
+- **Business/Location related**: Real business names, addresses, phone numbers, hours, pricing
+- **Service/Product related**: Currently available services, latest rates, booking methods
+- **Location-based info**: Nearby businesses based on user location, regional characteristics
+- **Current information**: Latest {current_year} information prioritized
 
 Instructions:
-1. Understand what "{checklist_item}" is
-2. Create 3-5 sequential action steps needed to complete it
+1. Understand what "{checklist_item}" is and search for real information
+2. Create 3-5 sequential action steps using actual search results
 3. Each step should have: order, title, description, estimatedTime, difficulty
-4. Make each step specific and actionable
+4. Include real contact information and links from search results
 
 Example 1:
 Item: "Get travel insurance"

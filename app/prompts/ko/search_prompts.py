@@ -27,16 +27,27 @@ class SearchResponse(BaseModel):
     links: List[LinkInfo]
     price: Optional[str] = None
 
-def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None) -> str:
+def get_search_prompt(checklist_item: str, user_country: str = None, user_language: str = None, user_location: str = None) -> str:
     """체크리스트 아이템 기반 웹 검색용 한국어 프롬프트 생성 (responseSchema 전용)"""
     current_year = datetime.now().year
     
     return f"""당신은 체크리스트 항목을 구체적인 실행 단계로 분해하는 전문가입니다. 사용자가 실제로 행동할 수 있는 명확하고 순차적인 가이드를 제공합니다.
 
+## 중요: 실제 정보 검색 활용
+Google 웹 검색 기능을 적극 활용하여 다음과 같은 실제 정보를 제공하세요:
+- **업체/장소 관련**: 실제 업체명, 주소, 전화번호, 운영시간, 가격 정보
+- **서비스/상품 관련**: 현재 이용 가능한 서비스, 최신 요금, 예약 방법
+- **지역별 정보**: 사용자 위치 기반 근처 업체, 지역별 특성 반영
+- **최신 정보**: {current_year}년 기준 최신 정보 우선 검색
+
 ## 주어진 정보
 - 체크리스트 항목: "{checklist_item}"
 - 사용자 국가: "{user_country or '한국'}"
+- 사용자 위치: "{user_location or '정보 없음'}"
 - 현재 연도: "{current_year}"
+
+## 위치 기반 검색 전략
+{f'사용자가 {user_location}에 위치하고 있으므로, 해당 지역의 실제 업체와 서비스 정보를 우선 검색하여 제공하세요.' if user_location else '사용자 위치 정보가 없으므로, 일반적으로 접근 가능한 온라인 서비스나 전국 체인점 정보를 우선 제공하세요.'}
 
 ## 작업 프로세스
 
@@ -80,41 +91,48 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 
 ## 입출력 예제
 
-### 예제 1: 단순 항목 (3단계)
-**입력**: "카페 예약하기"
+### 예제 1: 단순 항목 (3단계) - 실제 검색 정보 활용
+**입력**: "강남 고깃집 예약하기"
 **사고 과정**:
-- 항목 분석: 특정 카페에 특정 시간 예약하는 작업
+- 항목 분석: 강남 지역 고깃집에 특정 시간 예약하는 작업
 - 복잡도 평가: 준비물 1개(전화번호) + 혼자 가능 + 당일 완료 → 단순 (3단계)
-- 필수 단계: 카페 선택 → 연락 → 예약 확정
+- 필수 단계: 고깃집 검색 → 연락 → 예약 확정
+- **실제 검색 필요**: 강남 지역 고깃집 정보, 전화번호, 가격대
 
 **출력**:
 {{
   "steps": [
     {{
       "order": 1,
-      "title": "카페 검색하기",
-      "description": "원하는 지역과 분위기를 고려하여 예약 가능한 카페를 2-3곳 검색하세요",
-      "estimatedTime": "10분",
+      "title": "고깃집 검색하기",
+      "description": "강남 지역 고깃집을 검색하여 평점과 리뷰가 좋은 곳 2-3개를 선별하세요 (마포갈매기, 본가네 등)",
+      "estimatedTime": "15분",
       "difficulty": "쉬움"
     }},
     {{
       "order": 2,
-      "title": "예약 문의하기",
-      "description": "선택한 카페에 전화하여 원하는 날짜와 시간에 예약이 가능한지 문의하세요",
-      "estimatedTime": "5분",
+      "title": "전화 예약하기",
+      "description": "선택한 고깃집에 직접 전화하여 원하는 날짜/시간/인원수로 예약 가능 여부를 확인하세요",
+      "estimatedTime": "10분",
       "difficulty": "쉬움"
     }},
     {{
       "order": 3,
       "title": "예약 확정하기",
-      "description": "예약을 확정하고 예약자 이름과 연락처를 알려드린 후 예약 확인 문자나 이메일을 받으세요",
+      "description": "예약자 이름, 연락처, 특별 요청사항을 전달하고 예약 확인 후 가게 주소와 주차 정보를 메모하세요",
       "estimatedTime": "5분",
       "difficulty": "쉬움"
     }}
   ],
-  "contacts": ["카페 전화번호 확인 필요"],
-  "links": [{{"title": "네이버 플레이스", "url": "https://place.naver.com"}}],
-  "price": "음료값 별도"
+  "contacts": [
+    {{"name": "마포갈매기 강남점", "phone": "02-538-1234", "email": null}},
+    {{"name": "본가네 강남역점", "phone": "02-567-5678", "email": null}}
+  ],
+  "links": [
+    {{"title": "네이버 플레이스 - 강남 고깃집", "url": "https://place.naver.com"}},
+    {{"title": "카카오맵 - 강남 맛집", "url": "https://map.kakao.com"}}
+  ],
+  "price": "1인당 2-3만원"
 }}
 
 ### 예제 2: 보통 항목 (4단계) 
@@ -320,14 +338,21 @@ def get_search_prompt(checklist_item: str, user_country: str = None, user_langua
 
 ### 필수 조건
 - 사고 과정을 JSON 출력 전에 반드시 명시
-- 각 단계는 "N단계:"로 시작하는 완전한 문장
+- 각 단계에는 구체적인 실행 방법과 메타데이터 포함
 - 순서대로 따라하면 항목이 완전히 완료되도록 구성
-- 한국 상황에 맞는 구체적 정보 포함
+- **실제 검색된 정보를 최대한 활용하여 구체성 확보**
+
+### 실제 정보 활용 우선순위
+1. **업체명/장소명**: 실제 존재하는 업체명 우선 사용
+2. **연락처 정보**: 실제 전화번호, 이메일 주소 포함
+3. **가격 정보**: 현재 시점 실제 요금/가격 정보
+4. **운영 정보**: 실제 운영시간, 휴무일, 예약 방법
+5. **위치 정보**: 구체적인 주소, 교통 정보, 주차 안내
 
 ### 검증 항목
 1. 모든 단계를 수행하면 정말로 "{checklist_item}"이 완료되는가?
 2. 각 단계가 구체적이고 즉시 실행 가능한가?
-3. 단계 간 논리적 순서가 올바른가?
+3. 실제 검색된 정보가 단계와 연락처에 적절히 반영되었는가?
 4. 국가별/상황별 특성이 반영되었는가?
 
 ## 출력 형식
